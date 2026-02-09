@@ -7,7 +7,9 @@ class IngestResponseSerializer(serializers.Serializer):
 
 
 class SampleSerializer(serializers.Serializer):
-    time = serializers.CharField(max_length=32)
+    time = serializers.DateTimeField(
+        input_formats=["%Y-%m-%d %H:%M:%S.%f"],  # "2026-02-06 00:00:00.000"
+    )
     ax = serializers.FloatField()
     ay = serializers.FloatField()
     az = serializers.FloatField()

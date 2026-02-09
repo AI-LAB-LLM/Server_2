@@ -18,15 +18,17 @@ class ThreatIngestView(APIView):
             "- Method: POST\n"
             "- Content-Type: application/json\n"
             "- Endpoint: /api/threat/ingest\n\n"
+            "업로드 단위\n"
+            "- 1회 요청 = 1개 윈도우(window)이며, 6초 동안 수집한 샘플을 한 번에 전송합니다.\n"
+            "- '6초 x 25hz = 150' 총 150개(samples=150) 입니다.\n"
+            "- 따라서 6초 동안 샘플을 버퍼링한 뒤, 6초 주기로 한 번씩 업로드해야 합니다.\n\n"
             "요청 규칙\n"
             "- device_id (required)\n"
-            "- samples (required)\n"
+            "- samples (required): 길이=150 (window_sec=6, hz=25 기준)\n"
             "- sample 필수 필드: time, ax, ay, az, ppg_green\n"
             "- ppg_ir/ppg_red는 optional이며 없으면 생략하거나 null로 전송 가능\n"
+            "- time 형식: YYYY-MM-DD HH:MM:SS.mmm (예: 2026-02-06 06:45:00.000)\n"
             "- window_sec=6, hz=25\n\n"
-            # "서버 저장 규칙\n"
-            # "- seq는 서버가 수신 순서대로 0..N-1 자동 부여\n"
-            # "- t_start/t_end는 samples[0].time / samples[-1].time 값으로 저장\n"
         ),
         request=IngestSerializer,
         responses={
@@ -40,34 +42,21 @@ class ThreatIngestView(APIView):
         },
         examples=[
             OpenApiExample(
-                "Request example (with optional fields)",
+                "Request example (6s window = 150 samples, truncated)",
                 value={
                     "device_id": "SM-L300_ABC123",
-                    "sos_id": "SOS_20260130_0001",
+                    "sos_id": "SOS_20260206_0001",
                     "window_sec": 6,
                     "hz": 25,
                     "samples": [
-                        {"time": "00:00:00.000", "ax": 0.186416, "ay": 0.066368, "az": -0.93696, "ppg_green": 37457, "ppg_ir": None, "ppg_red": None},
-                        {"time": "00:00:00.040", "ax": 0.173728, "ay": 0.121024, "az": -0.93696, "ppg_green": 45171}
+                        {"time": "2026-02-06 06:45:00.000", "ax": 0.186416, "ay": 0.066368, "az": -0.93696, "ppg_green": 37457},
+                        {"time": "2026-02-06 06:45:00.040", "ax": 0.173728, "ay": 0.121024, "az": -0.93696, "ppg_green": 45171},
+                        {"time": "2026-02-06 06:45:00.080", "ax": 0.170000, "ay": 0.120000, "az": -0.93000, "ppg_green": 44900},
+                        # ... 중간 147개 생략 ...
+                        {"time": "2026-02-06 06:45:05.960", "ax": 0.160000, "ay": 0.110000, "az": -0.92000, "ppg_green": 44000},
                     ],
                 },
-                description="실제 샘플 수는 클라이언트 구현에 따라 달라질 수 있습니다.",
-                request_only=True,
-            ),
-            OpenApiExample(
-                "Request example (minimal)",
-                value={
-                    "device_id": "SM-L300_ABC123",
-                    "samples": [
-                        {
-                            "time": "00:00:00.000",
-                            "ax": 0.186416,
-                            "ay": 0.066368,
-                            "az": -0.93696,
-                            "ppg_green": 37457
-                        }
-                    ],
-                },
+                description="samples는 실제로 총 150개(6초×25Hz)이며, 문서에는 일부만 표시했습니다.",
                 request_only=True,
             ),
             OpenApiExample(
