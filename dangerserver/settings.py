@@ -40,6 +40,11 @@ INSTALLED_APPS = [
     'rest_framework',
     "drf_spectacular",
     'ingest',
+    'monitoring',
+    'analysis',
+    'ppg',
+    'imu',
+    'geo',
 ]
 
 MIDDLEWARE = [
@@ -125,11 +130,12 @@ REST_FRAMEWORK = {
 }
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "Threat Ingest API",
+    "TITLE": "API",
     "VERSION": "1.0.0",
+    "DESCRIPTION": "전용 워치 기반 상시보고/주기보고 및 PPG/IMU 위험 탐지 API",
     "SERVERS": [
         # {"url": "http://127.0.0.1:8001", "description": "Local"},
-        {"url": "http://210.125.91.90:8001", "description": "Test Server"},
+        {"url": "http://210.125.91.90:8001", "description": ""},
         # {"url": "https://<PROD_DOMAIN>", "description": "Production"},
     ],
 }

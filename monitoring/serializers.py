@@ -1,0 +1,137 @@
+from datetime import datetime, timezone as dt_timezone
+from rest_framework import serializers
+
+from .models import MonitoringSession
+
+
+class MonitoringSessionSerializer(serializers.ModelSerializer):
+    protectee_id = serializers.IntegerField(source="protectee.id", read_only=True)
+    device_id = serializers.CharField(source="protectee.device_id", read_only=True)
+    protectee_name = serializers.CharField(source="protectee.name", read_only=True)
+    is_active = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MonitoringSession
+        fields = [
+            "id",
+            "protectee_id",
+            "device_id",
+            "protectee_name",
+            "mode",
+            "is_active",
+            "started_at",
+            "ended_at",
+        ]
+
+    def get_is_active(self, obj):
+        return obj.ended_at is None
+
+
+class SensorWindowCreateSerializer(serializers.Serializer):
+    device_id = serializers.CharField(
+        max_length=100,
+        help_text="string, 전용 워치 device_id",
+    )
+
+    mode = serializers.ChoiceField(
+        choices=MonitoringSession.Mode.choices,
+        help_text="string, THREAT=이벤트보고, PERIODIC=주기보고, CALIBRATION=캘리브레이션",
+    )
+
+    timestamp = serializers.IntegerField(
+        help_text="integer, UNIX timestamp milliseconds. 예: 1777824000000",
+    )
+
+    sample_rate_hz = serializers.IntegerField(
+        default=25,
+        help_text="integer, 샘플링 주파수. 현재 25 고정",
+    )
+
+    duration_sec = serializers.IntegerField(
+        default=12,
+        help_text="integer, 데이터 길이 초 단위. 현재 12 고정",
+    )
+
+    imu = serializers.DictField(
+        required=False,
+        allow_empty=True,
+        help_text="object, IMU 데이터. THREAT/PERIODIC에서는 x, y, z 배열 필요. CALIBRATION에서는 생략 가능",
+    )
+
+    ppg = serializers.DictField(
+        help_text="object, PPG 데이터. green 배열 포함",
+    )
+
+    def validate(self, attrs):
+        mode = attrs.get("mode")
+        sample_rate_hz = attrs.get("sample_rate_hz", 25)
+        duration_sec = attrs.get("duration_sec", 12)
+
+        if sample_rate_hz != 25:
+            raise serializers.ValidationError("sample_rate_hz는 25여야 합니다.")
+
+        if duration_sec != 12:
+            raise serializers.ValidationError("duration_sec는 12여야 합니다.")
+
+        timestamp = attrs.get("timestamp")
+
+        if timestamp is None:
+            raise serializers.ValidationError("timestamp는 필수입니다.")
+
+        attrs["started_at"] = datetime.fromtimestamp(
+            timestamp / 1000,
+            tz=dt_timezone.utc,
+        )
+
+        expected_count = sample_rate_hz * duration_sec
+
+        imu = attrs.get("imu") or {}
+        ppg = attrs.get("ppg") or {}
+
+        ppg_green = ppg.get("green")
+
+        if ppg_green is None:
+            raise serializers.ValidationError("ppg에는 green 배열이 필요합니다.")
+
+        if not isinstance(ppg_green, list):
+            raise serializers.ValidationError("ppg.green은 배열이어야 합니다.")
+
+        if len(ppg_green) != expected_count:
+            raise serializers.ValidationError(
+                f"25Hz, 12초 데이터는 ppg.green 배열 길이가 {expected_count}개여야 합니다."
+            )
+
+        if mode == MonitoringSession.Mode.CALIBRATION:
+            attrs["x"] = None
+            attrs["y"] = None
+            attrs["z"] = None
+            attrs["ppg_green"] = ppg_green
+            return attrs
+
+        x = imu.get("x")
+        y = imu.get("y")
+        z = imu.get("z")
+
+        if x is None or y is None or z is None:
+            raise serializers.ValidationError(
+                "THREAT/PERIODIC 모드에서는 imu에 x, y, z 배열이 모두 필요합니다."
+            )
+
+        if not isinstance(x, list) or not isinstance(y, list) or not isinstance(z, list):
+            raise serializers.ValidationError("imu.x, imu.y, imu.z는 배열이어야 합니다.")
+
+        if not (
+            len(x) == expected_count
+            and len(y) == expected_count
+            and len(z) == expected_count
+        ):
+            raise serializers.ValidationError(
+                f"25Hz, 12초 데이터는 imu.x, imu.y, imu.z 배열 길이가 모두 {expected_count}개여야 합니다."
+            )
+
+        attrs["x"] = x
+        attrs["y"] = y
+        attrs["z"] = z
+        attrs["ppg_green"] = ppg_green
+
+        return attrs
