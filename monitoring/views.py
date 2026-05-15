@@ -59,7 +59,7 @@ Request body:
 - imu.x: number[], 길이 300
 - imu.y: number[], 길이 300
 - imu.z: number[], 길이 300
-- ppg.green: number[], 길이 300
+- ppg_green: number[], 길이 300
 """,
     request=SensorWindowCreateSerializer,
     responses={
@@ -86,9 +86,7 @@ Request body:
                     "y": [0.11, 0.12, 0.13],
                     "z": [9.80, 9.79, 9.81],
                 },
-                "ppg": {
-                    "green": [12345, 12347, 12340],
-                },
+                "ppg_green": [12345, 12347, 12340],
             },
             request_only=True,
         ),
@@ -105,9 +103,7 @@ Request body:
                     "y": [0.11, 0.12, 0.13],
                     "z": [9.80, 9.79, 9.81],
                 },
-                "ppg": {
-                    "green": [12345, 12347, 12340],
-                },
+                "ppg_green": [12345, 12347, 12340],
             },
             request_only=True,
         ),
@@ -119,9 +115,7 @@ Request body:
                 "sample_rate_hz": 25,
                 "duration_sec": 12,
                 "timestamp": 1777824000000,
-                "ppg": {
-                    "green": [12345, 12347, 12340],
-                },
+                "ppg_green": [12345, 12347, 12340],
             },
             request_only=True,
         ),

@@ -1,6 +1,5 @@
 from datetime import datetime, timezone as dt_timezone
 from rest_framework import serializers
-
 from .models import MonitoringSession
 
 
@@ -58,8 +57,9 @@ class SensorWindowCreateSerializer(serializers.Serializer):
         help_text="object, IMU 데이터. THREAT/PERIODIC에서는 x, y, z 배열 필요. CALIBRATION에서는 생략 가능",
     )
 
-    ppg = serializers.DictField(
-        help_text="object, PPG 데이터. green 배열 포함",
+    ppg_green = serializers.ListField(
+        child=serializers.FloatField(),
+        help_text="number[], PPG Green 센서 배열. 길이 300",
     )
 
     def validate(self, attrs):
@@ -86,19 +86,17 @@ class SensorWindowCreateSerializer(serializers.Serializer):
         expected_count = sample_rate_hz * duration_sec
 
         imu = attrs.get("imu") or {}
-        ppg = attrs.get("ppg") or {}
-
-        ppg_green = ppg.get("green")
+        ppg_green = attrs.get("ppg_green")
 
         if ppg_green is None:
-            raise serializers.ValidationError("ppg에는 green 배열이 필요합니다.")
+            raise serializers.ValidationError("ppg_green 배열이 필요합니다.")
 
         if not isinstance(ppg_green, list):
-            raise serializers.ValidationError("ppg.green은 배열이어야 합니다.")
+            raise serializers.ValidationError("ppg_green은 배열이어야 합니다.")
 
         if len(ppg_green) != expected_count:
             raise serializers.ValidationError(
-                f"25Hz, 12초 데이터는 ppg.green 배열 길이가 {expected_count}개여야 합니다."
+                f"25Hz, 12초 데이터는 ppg_green 배열 길이가 {expected_count}개여야 합니다."
             )
 
         if mode == MonitoringSession.Mode.CALIBRATION:
