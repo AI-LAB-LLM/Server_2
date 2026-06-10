@@ -26,6 +26,15 @@ class MonitoringSessionSerializer(serializers.ModelSerializer):
         return obj.ended_at is None
 
 
+MODE_CODE_TO_VALUE = {
+    1: MonitoringSession.Mode.THREAT,
+    2: MonitoringSession.Mode.PERIODIC,
+    3: MonitoringSession.Mode.CALIBRATION,
+}
+
+MODE_VALUE_TO_CODE = {value: code for code, value in MODE_CODE_TO_VALUE.items()}
+
+
 class SensorWindowCreateSerializer(serializers.Serializer):
     device_id = serializers.CharField(
         max_length=100,
@@ -33,8 +42,8 @@ class SensorWindowCreateSerializer(serializers.Serializer):
     )
 
     mode = serializers.ChoiceField(
-        choices=MonitoringSession.Mode.choices,
-        help_text="string, THREAT=이벤트보고, PERIODIC=주기보고, CALIBRATION=캘리브레이션",
+        choices=list(MODE_CODE_TO_VALUE.keys()),
+        help_text="number, 1=이벤트보고, 2=주기보고, 3=Calibration",
     )
 
     timestamp = serializers.IntegerField(
@@ -54,16 +63,17 @@ class SensorWindowCreateSerializer(serializers.Serializer):
     imu = serializers.DictField(
         required=False,
         allow_empty=True,
-        help_text="object, IMU 데이터. THREAT/PERIODIC에서는 x, y, z 배열 필요. CALIBRATION에서는 생략 가능",
+        help_text="object, IMU 데이터. mode=1/2에서는 x, y, z 배열 필요. mode=3에서는 생략 가능. 각 배열은 최대 300개(일부 누락 가능)",
     )
 
     ppg_green = serializers.ListField(
         child=serializers.FloatField(),
-        help_text="number[], PPG Green 센서 배열. 길이 300",
+        help_text="number[], PPG Green 센서 배열. 최대 300개(일부 누락 가능)",
     )
 
     def validate(self, attrs):
-        mode = attrs.get("mode")
+        mode = MODE_CODE_TO_VALUE[attrs["mode"]]
+        attrs["mode"] = mode
         sample_rate_hz = attrs.get("sample_rate_hz", 25)
         duration_sec = attrs.get("duration_sec", 12)
 
@@ -94,9 +104,9 @@ class SensorWindowCreateSerializer(serializers.Serializer):
         if not isinstance(ppg_green, list):
             raise serializers.ValidationError("ppg_green은 배열이어야 합니다.")
 
-        if len(ppg_green) != expected_count:
+        if len(ppg_green) > expected_count:
             raise serializers.ValidationError(
-                f"25Hz, 12초 데이터는 ppg_green 배열 길이가 {expected_count}개여야 합니다."
+                f"ppg_green 배열 길이는 최대 {expected_count}개까지 허용됩니다."
             )
 
         if mode == MonitoringSession.Mode.CALIBRATION:
@@ -118,14 +128,11 @@ class SensorWindowCreateSerializer(serializers.Serializer):
         if not isinstance(x, list) or not isinstance(y, list) or not isinstance(z, list):
             raise serializers.ValidationError("imu.x, imu.y, imu.z는 배열이어야 합니다.")
 
-        if not (
-            len(x) == expected_count
-            and len(y) == expected_count
-            and len(z) == expected_count
-        ):
-            raise serializers.ValidationError(
-                f"25Hz, 12초 데이터는 imu.x, imu.y, imu.z 배열 길이가 모두 {expected_count}개여야 합니다."
-            )
+        for name, arr in (("imu.x", x), ("imu.y", y), ("imu.z", z)):
+            if len(arr) > expected_count:
+                raise serializers.ValidationError(
+                    f"{name} 배열 길이는 최대 {expected_count}개까지 허용됩니다."
+                )
 
         attrs["x"] = x
         attrs["y"] = y

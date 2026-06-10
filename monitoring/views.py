@@ -10,6 +10,8 @@ from drf_spectacular.utils import (
 )
 from .models import MonitoringSession, SensorWindow
 from .serializers import (
+    MODE_CODE_TO_VALUE,
+    MODE_VALUE_TO_CODE,
     MonitoringSessionSerializer,
     SensorWindowCreateSerializer,
 )
@@ -22,9 +24,10 @@ from .utils import (
 SensorWindowResponseSerializer = inline_serializer(
     name="SensorWindowResponse",
     fields={
-        "message": serializers.CharField(),
+        "status": serializers.CharField(help_text="처리 결과 상태(success/fail)"),
         "device_id": serializers.CharField(),
-        "mode": serializers.CharField(),
+        "received_window_count": serializers.IntegerField(help_text="현재 세션에서 수신된 윈도우 개수"),
+        "mode": serializers.IntegerField(help_text="1=THREAT, 2=PERIODIC, 3=캘리브레이션"),
     },
 )
 
@@ -44,15 +47,15 @@ ErrorResponseSerializer = inline_serializer(
 25Hz, 12초 단위 센서 데이터 수신
 
 mode별 처리:
-- THREAT: 이벤트보고 데이터 저장. IMU x, y, z + PPG green 필요
-- PERIODIC: 주기보고 데이터 저장. IMU x, y, z + PPG green 필요
-- CALIBRATION: 캘리브레이션 데이터 저장. PPG green만 필요, IMU는 저장하지 않음
-- THREAT / PERIODIC: 12초 윈도우 25개 = 5분
-- CALIBRATION: 12초 윈도우 8개 = 96초
+- 1 (이벤트보고): 데이터 저장. IMU x, y, z + PPG green 필요
+- 2 (주기보고): 데이터 저장. IMU x, y, z + PPG green 필요
+- 3 (Calibration): 캘리브레이션 데이터 저장. PPG green만 필요, IMU는 저장하지 않음
+- 1 / 2: 12초 윈도우 25개 = 5분
+- 3: 12초 윈도우 8개 = 96초
 
 Request body:
 - device_id: string, 전용 워치 ID
-- mode: string, THREAT 또는 PERIODIC 또는 CALIBRATION
+- mode: number, 1=이벤트보고, 2=주기보고, 3=Calibration
 - sample_rate_hz: integer, 25Hz 고정
 - duration_sec: integer, 12초 고정
 - timestamp: 해당 12초 윈도우의 시작 시간. UNIX time, ms
@@ -68,16 +71,16 @@ Request body:
             description="센서 데이터 저장 성공",
         ),
         400: OpenApiResponse(
-            response=ErrorResponseSerializer,
+            response=SensorWindowResponseSerializer,
             description="요청값 오류",
         ),
     },
     examples=[
         OpenApiExample(
-            "THREAT 요청 예시",
+            "이벤트보고(mode=1) 요청 예시",
             value={
                 "device_id": "P002",
-                "mode": "THREAT",
+                "mode": 1,
                 "sample_rate_hz": 25,
                 "duration_sec": 12,
                 "timestamp": 1777824000000,
@@ -91,10 +94,10 @@ Request body:
             request_only=True,
         ),
         OpenApiExample(
-            "PERIODIC 요청 예시",
+            "주기보고(mode=2) 요청 예시",
             value={
                 "device_id": "P002",
-                "mode": "PERIODIC",
+                "mode": 2,
                 "sample_rate_hz": 25,
                 "duration_sec": 12,
                 "timestamp": 1777824000000,
@@ -108,10 +111,10 @@ Request body:
             request_only=True,
         ),
         OpenApiExample(
-            "CALIBRATION 요청 예시",
+            "Calibration(mode=3) 요청 예시",
             value={
                 "device_id": "P002",
-                "mode": "CALIBRATION",
+                "mode": 3,
                 "sample_rate_hz": 25,
                 "duration_sec": 12,
                 "timestamp": 1777824000000,
@@ -122,38 +125,76 @@ Request body:
         OpenApiExample(
             "저장 성공 응답",
             value={
-                "message": "센서 데이터가 저장되었습니다.",
+                "status": "success",
                 "device_id": "P002",
-                "mode": "THREAT",
+                "received_window_count": 1,
+                "mode": 1,
             },
             response_only=True,
             status_codes=["201"],
         ),
         OpenApiExample(
-            "캘리브레이션 완료 응답",
+            "처리 실패 응답",
             value={
-                "message": "캘리브레이션이 완료되었습니다.",
+                "status": "fail",
                 "device_id": "P002",
-                "mode": "CALIBRATION",
+                "received_window_count": 0,
+                "mode": 1,
+                "detail": "세션을 생성하거나 찾을 수 없습니다.",
             },
             response_only=True,
-            status_codes=["201"],
+            status_codes=["400"],
+        ),
+        OpenApiExample(
+            "요청값 검증 실패 응답",
+            value={
+                "status": "fail",
+                "device_id": "P002",
+                "received_window_count": 0,
+                "mode": 0,
+                "detail": {
+                    "imu": ["25Hz, 12초 데이터는 imu.x, imu.y, imu.z 배열 길이가 모두 300개여야 합니다."]
+                },
+            },
+            response_only=True,
+            status_codes=["400"],
         ),
     ],
 )
 @api_view(["POST"])
 def create_sensor_window(request):
     serializer = SensorWindowCreateSerializer(data=request.data)
-    serializer.is_valid(raise_exception=True)
+
+    if not serializer.is_valid():
+        raw_device_id = request.data.get("device_id")
+        raw_mode = request.data.get("mode")
+
+        return Response(
+            {
+                "status": "fail",
+                "device_id": raw_device_id if isinstance(raw_device_id, str) else "",
+                "received_window_count": 0,
+                "mode": raw_mode if raw_mode in MODE_CODE_TO_VALUE else 0,
+                "detail": serializer.errors,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     device_id = serializer.validated_data["device_id"]
     mode = serializer.validated_data["mode"]
+    mode_code = MODE_VALUE_TO_CODE[mode]
 
     try:
         protectee = get_or_create_protectee_by_device_id(device_id)
     except ValueError as e:
         return Response(
-            {"detail": str(e)},
+            {
+                "status": "fail",
+                "device_id": device_id,
+                "received_window_count": 0,
+                "mode": mode_code,
+                "detail": str(e),
+            },
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -164,13 +205,25 @@ def create_sensor_window(request):
 
     if error_response:
         return Response(
-            error_response,
+            {
+                "status": "fail",
+                "device_id": protectee.device_id,
+                "received_window_count": 0,
+                "mode": mode_code,
+                **error_response,
+            },
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     if not session:
         return Response(
-            {"detail": "세션을 생성하거나 찾을 수 없습니다."},
+            {
+                "status": "fail",
+                "device_id": protectee.device_id,
+                "received_window_count": 0,
+                "mode": mode_code,
+                "detail": "세션을 생성하거나 찾을 수 없습니다.",
+            },
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -194,28 +247,16 @@ def create_sensor_window(request):
     else:
         required_window_count = 25
 
-    session_completed = window_count >= required_window_count
-
-    message = "센서 데이터가 저장되었습니다."
-
-    if session_completed:
+    if window_count >= required_window_count:
         session.ended_at = timezone.now()
         session.save(update_fields=["ended_at"])
 
-        if session.mode == MonitoringSession.Mode.PERIODIC:
-            message = "주기보고가 완료되었습니다."
-
-        elif session.mode == MonitoringSession.Mode.THREAT:
-            message = "이벤트보고 데이터 수집이 완료되었습니다."
-
-        elif session.mode == MonitoringSession.Mode.CALIBRATION:
-            message = "캘리브레이션이 완료되었습니다."
-
     return Response(
         {
-            "message": message,
+            "status": "success",
             "device_id": protectee.device_id,
-            "mode": session.mode,
+            "received_window_count": window_count,
+            "mode": mode_code,
         },
         status=status.HTTP_201_CREATED,
     )
