@@ -7,7 +7,6 @@ urlpatterns = [
     # path("api/", include("ingest.urls")),
 
     path("api/monitoring/", include("monitoring.urls")),
-    path("api/geo/", include("geo.urls")),
     # path("api/analysis/", include("analysis.urls")),
 
     # OpenAPI schema JSON
