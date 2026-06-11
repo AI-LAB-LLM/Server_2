@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'analysis',
     'ppg',
     'imu',
+    'geo',
 ]
 
 MIDDLEWARE = [
