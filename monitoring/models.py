@@ -116,7 +116,7 @@ class SensorWindow(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        db_table = "sensor_window"
+        db_table = "monitoring_window"
         ordering = ["-started_at"]
         indexes = [
             models.Index(fields=["session"]),
