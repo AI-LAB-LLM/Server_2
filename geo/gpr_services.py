@@ -321,6 +321,9 @@ def create_geo_processed_data_and_run_gpr(
     latitude,
     longitude,
 ):
+    if str(device_id) != GEO_MODEL_DEVICE_ID:
+        return None, {"gpr_status": "skipped", "reason": "unsupported_device"}, {"anomaly_status": "skipped", "reason": "unsupported_device"}
+
     pos_success = latitude is not None and longitude is not None
 
     geo_obj = GeoProcessedData.objects.create(
