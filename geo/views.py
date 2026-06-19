@@ -6,6 +6,7 @@ from rest_framework import status
 from monitoring.models import Protectee
 from .models import GeoData
 from .serializers import GeoDataIngestSerializer,GeoDataIngestResponseSerializer
+from .gpr_services import create_geo_processed_data_and_run_gpr
 
 
 class GeoDataIngestView(APIView):
@@ -61,32 +62,52 @@ class GeoDataIngestView(APIView):
 
         device_id = data["device_id"]
 
+        # GeoData 원본 저장
         with transaction.atomic():
             protectee, _ = Protectee.objects.get_or_create(
                 device_id=device_id,
                 defaults={"name": f"unknown-{device_id[:6]}"},
             )
 
-            created_rows = []
-
+            location_items = []
             for item in data["locations"]:
                 pos_success = item["pos_success"]
                 pos_info = item.get("pos_info")
 
-                geo_row = GeoData.objects.create(
+                GeoData.objects.create(
                     protectee=protectee,
                     device_id=device_id,
-                    timestamp=item["timestamp"],  # 이미 UTC datetime 객체
+                    timestamp=item["timestamp"],
                     pos_success=pos_success,
                     longitude=pos_info["longitude"] if pos_success and pos_info else None,
                     latitude=pos_info["latitude"] if pos_success and pos_info else None,
                     accuracy_h=pos_info["accuracy_h"] if pos_success and pos_info else None,
                 )
-                created_rows.append(geo_row.id)
+                location_items.append((item, pos_success, pos_info, protectee))
+
+        # GPR 보정 + 이상탐지 (트랜잭션 밖에서 실행)
+        gpr_results = []
+        for item, pos_success, pos_info, protectee in location_items:
+            latitude = pos_info["latitude"] if pos_success and pos_info else None
+            longitude = pos_info["longitude"] if pos_success and pos_info else None
+
+            _, gpr_result, anomaly_result = create_geo_processed_data_and_run_gpr(
+                protectee=protectee,
+                device_id=device_id,
+                timestamp=item["timestamp"],
+                latitude=latitude,
+                longitude=longitude,
+            )
+            gpr_results.append({
+                "timestamp": item["timestamp"].isoformat(),
+                "gpr_status": gpr_result.get("gpr_status"),
+                "anomaly_status": anomaly_result.get("anomaly_status"),
+            })
 
         response_data = {
             "status": "ok",
-            "saved_count": len(created_rows),
+            "saved_count": len(location_items),
+            "gpr_results": gpr_results,
         }
 
         return Response(response_data, status=status.HTTP_201_CREATED)
