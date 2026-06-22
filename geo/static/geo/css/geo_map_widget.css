@@ -1,0 +1,145 @@
+.geo-map-widget {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 480px;
+  font-family: -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+}
+
+.geo-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 8px 0 10px;
+  flex-wrap: wrap;
+}
+
+.geo-preset-select,
+
+.geo-start-input,
+.geo-end-input {
+  font-size: 12px;
+  padding: 5px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.geo-custom-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.geo-apply-btn {
+  font-size: 12px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 6px;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+}
+
+.geo-apply-btn:hover {
+  background: #1d4ed8;
+}
+
+.geo-latest-badge {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: #111827;
+  background: #f3f4f6;
+  padding: 5px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.geo-map-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 420px;
+}
+
+.geo-map-canvas {
+  width: 100%;
+  height: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.geo-zoom-control {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .3);
+}
+
+.geo-zoom-btn {
+  width: 26px;
+  height: 26px;
+  background: #fff;
+  border: none;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  color: #374151;
+  cursor: pointer;
+}
+
+.geo-zoom-btn:last-child {
+  border-bottom: none;
+}
+
+.geo-zoom-btn:hover {
+  background: #f3f4f6;
+}
+
+.geo-point {
+  position: relative;
+}
+
+.geo-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #38bdf8;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 4px rgba(0, 0, 0, .45);
+  cursor: pointer;
+}
+
+.geo-dot.is-latest {
+  width: 13px;
+  height: 13px;
+  background: #f43f5e;
+}
+
+.geo-tooltip {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, .92);
+  color: #fff;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  display: none;
+  pointer-events: none;
+}
+
+.geo-tooltip.is-visible {
+  display: block;
+}

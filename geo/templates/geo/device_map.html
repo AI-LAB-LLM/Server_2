@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+{% load static %}
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>위치 시각화 – {{ device_id }}</title>
+  <link rel="stylesheet" href="{% static 'geo/css/geo_map_widget.css' %}">
+  <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey={{ KAKAO_JS_KEY }}&autoload=false"></script>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; }
+    .page-header { padding: 16px 20px 0; }
+    .page-header h1 { font-size: 16px; margin: 0 0 4px; }
+    .page-header .device-id { font-size: 12px; color: #6b7280; }
+    #geoMapRoot { height: calc(100vh - 64px); padding: 0 20px 16px; box-sizing: border-box; }
+  </style>
+</head>
+<body>
+  <div class="page-header">
+    <h1>위치 시각화</h1>
+    <div class="device-id">device_id: {{ device_id }}</div>
+  </div>
+  <div id="geoMapRoot"></div>
+
+  <script type="module">
+    import { mountGeoMapWidget } from "{% static 'geo/js/geo_map_widget.js' %}";
+    mountGeoMapWidget(document.getElementById("geoMapRoot"), "{{ device_id|escapejs }}");
+  </script>
+</body>
+</html>
