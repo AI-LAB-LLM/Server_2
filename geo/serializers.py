@@ -57,3 +57,18 @@ class GeoDataIngestSerializer(serializers.Serializer):
 class GeoDataIngestResponseSerializer(serializers.Serializer):
     status = serializers.CharField()
     saved_count = serializers.IntegerField()
+
+
+class GeoTrackPointSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    timestamp = serializers.DateTimeField()
+    latitude = serializers.FloatField()
+    longitude = serializers.FloatField()
+    gps_quality = serializers.CharField(allow_null=True)
+    state_primary = serializers.CharField(allow_null=True)
+
+
+class GeoTrackResponseSerializer(serializers.Serializer):
+    device_id = serializers.CharField()
+    count = serializers.IntegerField()
+    points = GeoTrackPointSerializer(many=True)
