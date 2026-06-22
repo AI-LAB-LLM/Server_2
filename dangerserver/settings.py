@@ -148,3 +148,8 @@ SPECTACULAR_SETTINGS = {
 }
 
 KAKAO_JS_KEY = os.getenv("KAKAO_JS_KEY", "")
+
+# 신변보호플랫폼(IMP) 연동 BASE URL
+DANGER_PLATFORM_BASE_URL = os.getenv(
+    "DANGER_PLATFORM_BASE_URL", "http://spin.geotwo.com"
+)
