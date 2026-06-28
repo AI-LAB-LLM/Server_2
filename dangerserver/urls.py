@@ -8,9 +8,9 @@ urlpatterns = [
 
     path("api/monitoring/", include("monitoring.urls")),
     path("api/geo/", include("geo.urls")),
-    path("geo/", include("geo.web_urls")),
     # path("api/analysis/", include("analysis.urls")),
-
+    path("geo/", include("geo.web_urls")),
+    path('ppg/', include('ppg.urls')), 
     # OpenAPI schema JSON
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     # Swagger UI
