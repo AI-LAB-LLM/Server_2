@@ -31,11 +31,12 @@ class ResultCreateSerializer(serializers.Serializer):
         help_text="number 또는 null, 위험 확률값",
     )
 
-    risk_level = serializers.ChoiceField(
-        choices=Result.RiskLevel.choices,
+    risk_level = serializers.IntegerField(
         required=False,
         allow_null=True,
-        help_text="string 또는 null, LOW/MIDDLE/HIGH",
+        min_value=1,
+        max_value=5,
+        help_text="integer 또는 null, 1~5 위험도 등급",
     )
 
     risk_detected = serializers.BooleanField(
