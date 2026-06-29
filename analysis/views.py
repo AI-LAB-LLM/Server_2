@@ -41,11 +41,11 @@ PPG/IMU 위험 분석 결과 저장
 
 Request body:
 - device_id: string, 전용 워치 ID
-- mode: string, THREAT 또는 PERIODIC
-- event_type: string, PPG 또는 IMU
+- mode: string, THREAT, PERIODIC 또는 CALIBRATION
+- event_type: string, PPG, IMU 또는 GEO
 - timestamp_ms: integer, UNIX time, 위험 분석에 사용한 데이터 구간의 끝 시간
 - probability: number | null, 위험 확률
-- risk_level: string | null, HIGH, MIDDLE, LOW (위험 상,중,하)
+- risk_level: integer | null, 1~5 위험도 등급
 - risk_detected: boolean | null, 위험 감지 여부
 
 처리:
@@ -72,7 +72,7 @@ Request body:
                 "event_type": "PPG",
                 "timestamp": 1777824330000,
                 "probability": 0.82,
-                "risk_level": "HIGH",
+                "risk_level": 4,
                 "risk_detected": True,
             },
             request_only=True,
@@ -84,8 +84,8 @@ Request body:
                 "mode": "THREAT",
                 "event_type": "IMU",
                 "timestamp": 1777824330000,
-                "probability": 0.25,
-                "risk_level": "LOW",
+                "probability": None,
+                "risk_level": 1,
                 "risk_detected": False,
             },
             request_only=True,
@@ -162,8 +162,8 @@ def create_result(request):
 
 Query parameter:
 - device_id: string, 선택값
-- mode: string, 선택값, THREAT 또는 PERIODIC
-- event_type: string, 선택값, PPG 또는 IMU
+- mode: string, 선택값, THREAT, PERIODIC 또는 CALIBRATION
+- event_type: string, 선택값, PPG, IMU 또는 GEO
 """,
     responses={
         200: OpenApiResponse(

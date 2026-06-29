@@ -5,15 +5,12 @@ class Result(models.Model):
     class Mode(models.TextChoices):
         THREAT = "THREAT", "상시보고"
         PERIODIC = "PERIODIC", "주기보고"
+        CALIBRATION = "CALIBRATION", "캘리브레이션"
 
     class EventType(models.TextChoices):
         PPG = "PPG", "PPG"
         IMU = "IMU", "IMU"
-
-    class RiskLevel(models.TextChoices):
-        LOW = "LOW", "하"
-        MIDDLE = "MIDDLE", "중"
-        HIGH = "HIGH", "상"
+        GEO = "GEO", "GEO"
 
     device_id = models.CharField(
         max_length=100,
@@ -24,37 +21,35 @@ class Result(models.Model):
     mode = models.CharField(
         max_length=20,
         choices=Mode.choices,
-        help_text="THREAT=상시보고, PERIODIC=주기보고",
+        help_text="THREAT=상시보고, PERIODIC=주기보고, CALIBRATION=캘리브레이션",
     )
 
     event_type = models.CharField(
         max_length=10,
         choices=EventType.choices,
-        help_text="PPG 또는 IMU",
+        help_text="PPG, IMU 또는 GEO",
     )
 
     timestamp = models.BigIntegerField(
         help_text="UNIX timestamp milliseconds. 분석 결과가 대표하는 기준 시각",
     )
 
-    probability = models.FloatField(
+    risk_level = models.PositiveSmallIntegerField(
         null=True,
         blank=True,
-        help_text="위험 확률값. 결과가 없으면 null",
-    )
-
-    risk_level = models.CharField(
-        max_length=10,
-        choices=RiskLevel.choices,
-        null=True,
-        blank=True,
-        help_text="LOW/MIDDLE/HIGH. 결과가 없으면 null",
+        help_text="1~5 위험도 등급. 결과가 없으면 null",
     )
 
     risk_detected = models.BooleanField(
         null=True,
         blank=True,
         help_text="위험 감지 여부. 결과가 없으면 null",
+    )
+
+    probability = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="위험 확률값. 결과가 없으면 null",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
