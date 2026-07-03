@@ -1,4 +1,8 @@
-from .models import Protectee, MonitoringSession
+from django.utils import timezone
+from .models import Protectee, MonitoringSession, SensorWindow
+
+
+SESSION_TIMEOUT_SEC = 30
 
 
 def normalize_device_id(device_id: str) -> str:
@@ -21,41 +25,28 @@ def get_or_create_protectee_by_device_id(device_id: str) -> Protectee:
     return protectee
 
 
-def get_active_session(protectee: Protectee, mode: str):
-    """
-    진행 중인 세션 조회.
-
-    기준:
-    - ended_at이 null이면 진행 중
-    - ended_at에 값이 있으면 종료된 세션
-    """
-    return (
-        MonitoringSession.objects
-        .filter(
-            protectee=protectee,
-            mode=mode,
-            ended_at__isnull=True,
-        )
+def _is_session_stale(session, new_started_at) -> bool:
+    last_window = (
+        SensorWindow.objects
+        .filter(session=session)
         .order_by("-started_at")
+        .values("started_at")
         .first()
     )
+
+    if last_window is None:
+        return False
+
+    gap = (new_started_at - last_window["started_at"]).total_seconds()
+    return gap > SESSION_TIMEOUT_SEC
 
 
 def get_or_create_session_for_sensor_data(
     protectee: Protectee,
     mode: str,
+    new_started_at=None,
 ):
-    """
-    sensor-window 저장 시 사용할 세션을 조회하거나 생성.
 
-    전제:
-    - 중앙서버가 mode를 정확히 구분해서 전송함
-    - THREAT, PERIODIC, CALIBRATION이 서로 겹쳐서 들어오지 않음
-
-    처리:
-    - 같은 mode의 진행 중 세션이 있으면 기존 세션 사용
-    - 없으면 새 세션 생성
-    """
     valid_modes = [
         MonitoringSession.Mode.THREAT,
         MonitoringSession.Mode.PERIODIC,
@@ -67,13 +58,24 @@ def get_or_create_session_for_sensor_data(
             "detail": "mode는 THREAT, PERIODIC 또는 CALIBRATION이어야 합니다."
         }
 
-    active_session = get_active_session(
-        protectee=protectee,
-        mode=mode,
+    active_session = (
+        MonitoringSession.objects
+        .filter(
+            protectee=protectee,
+            mode=mode,
+            ended_at__isnull=True,
+        )
+        .order_by("-started_at")
+        .first()
     )
 
     if active_session:
-        return active_session, None
+        if new_started_at is None or not _is_session_stale(active_session, new_started_at):
+            return active_session, None
+
+        # 타임아웃된 세션은 닫고 새 세션 생성
+        active_session.ended_at = timezone.now()
+        active_session.save(update_fields=["ended_at"])
 
     session = MonitoringSession.objects.create(
         protectee=protectee,
