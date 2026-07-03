@@ -1,0 +1,30 @@
+[
+  {
+    "device_id":"212e15388f880450",
+    "anchor_id":1,
+    "anchor_lat":37.5908118291,
+    "anchor_lon":127.0229267846,
+    "anchor_radius_m":100.0
+  },
+  {
+    "device_id":"212e15388f880450",
+    "anchor_id":2,
+    "anchor_lat":37.3979349217,
+    "anchor_lon":126.9808024468,
+    "anchor_radius_m":100.0
+  },
+  {
+    "device_id":"212e15388f880450",
+    "anchor_id":3,
+    "anchor_lat":37.3961124319,
+    "anchor_lon":126.9843797298,
+    "anchor_radius_m":100.0
+  },
+  {
+    "device_id":"212e15388f880450",
+    "anchor_id":4,
+    "anchor_lat":37.3978309195,
+    "anchor_lon":126.9817285422,
+    "anchor_radius_m":100.0
+  }
+]
