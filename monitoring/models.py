@@ -66,6 +66,17 @@ class MonitoringSession(models.Model):
         help_text="세션 종료 시각. null이면 진행 중",
     )
 
+    last_received_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="가장 최근 윈도우가 서버에 수신된 시각",
+    )
+
+    window_count = models.PositiveIntegerField(
+        default=0,
+        help_text="현재 세션에 수신된 윈도우 개수",
+    )
+
     class Meta:
         db_table = "monitoring_session"
         ordering = ["-started_at"]
