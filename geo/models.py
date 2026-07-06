@@ -42,8 +42,8 @@ class GeoProcessedData(models.Model):
     raw_latitude = models.FloatField(null=True, blank=True)
     raw_longitude = models.FloatField(null=True, blank=True)
 
-    latitude = models.FloatField(null=True, blank=True)
-    longitude = models.FloatField(null=True, blank=True)
+    latitude = models.FloatField(null=True, blank=True, db_column='Latitude')
+    longitude = models.FloatField(null=True, blank=True, db_column='Longitude')
 
     pos_success = models.BooleanField(default=True)
 
