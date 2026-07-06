@@ -3,9 +3,11 @@ django-environ==0.12.0
 python-dotenv==1.2.2
 djangorestframework==3.16.1
 drf-spectacular
+requests==2.34.2
 scikit-learn==1.8.0
 numpy==2.4.6
 pandas==3.0.3
 scipy==1.17.1
 joblib==1.5.3
 torch==2.12.0
+ai-edge-litert==2.1.5
