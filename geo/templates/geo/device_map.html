@@ -7,23 +7,699 @@
   <link rel="stylesheet" href="{% static 'geo/css/geo_map_widget.css' %}">
   <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey={{ KAKAO_JS_KEY }}&autoload=false"></script>
   <style>
-    html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; }
-    .page-header { padding: 16px 20px 0; }
-    .page-header h1 { font-size: 16px; margin: 0 0 4px; }
-    .page-header .device-id { font-size: 12px; color: #6b7280; }
-    #geoMapRoot { height: calc(100vh - 64px); padding: 0 20px 16px; box-sizing: border-box; }
+    html, body { margin:0; padding:0; height:100%; font-family:-apple-system,"Segoe UI","Malgun Gothic",sans-serif; background:#f1f5f9; }
+
+    .page-header {
+      display:flex; align-items:center; gap:10px;
+      padding:10px 20px; background:#fff;
+      border-bottom:1px solid #e5e7eb; flex:0 0 auto;
+    }
+    .page-header h1 { font-size:15px; margin:0; color:#111827; font-weight:700; }
+    .page-header .device-id { font-size:11px; color:#9ca3af; font-family:monospace; }
+
+    .mode-tabs { display:flex; gap:4px; margin-left:auto; }
+    .mode-tab {
+      padding:5px 16px; border-radius:6px; font-size:12px; font-weight:600;
+      border:1.5px solid #e5e7eb; cursor:pointer; background:#f9fafb; color:#6b7280;
+      transition:all .15s; line-height:1.6;
+    }
+    .mode-tab.active { background:#1d4ed8; color:#fff; border-color:#1d4ed8; }
+    .mode-tab:hover:not(.active) { background:#f3f4f6; color:#374151; }
+
+    .page-body {
+      display:flex; flex-direction:column;
+      height:calc(100vh - 49px);
+      padding:10px 16px 10px; box-sizing:border-box; gap:6px;
+    }
+
+    /* ── 여정 분석 필터 바 ── */
+    .trip-filter-bar {
+      flex:0 0 auto; display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+    }
+    #tripFilterStatus { font-size:11px; color:#9ca3af; margin-left:auto; white-space:nowrap; }
+
+    /* ── 캘린더 트리거 ── */
+    .cal-trigger {
+      font-size:12px; padding:5px 11px; border-radius:6px;
+      border:1px solid #d1d5db; background:#fff; color:#374151;
+      cursor:pointer; white-space:nowrap; transition:all .15s;
+    }
+    .cal-trigger.has-date { background:#eff6ff; border-color:#93c5fd; color:#1d4ed8; font-weight:600; }
+    .cal-trigger:hover:not(.has-date) { background:#f9fafb; }
+
+    .cal-clear {
+      background:none; border:none; cursor:pointer; font-size:15px;
+      color:#9ca3af; padding:1px 5px; border-radius:4px; line-height:1;
+      display:none;
+    }
+    .cal-clear:hover { background:#fee2e2; color:#dc2626; }
+
+    /* ── 캘린더 패널 ── */
+    #calWrap { position:relative; flex-shrink:0; display:flex; align-items:center; gap:3px; }
+
+    .cal-panel {
+      position:absolute; top:calc(100% + 6px); left:0; z-index:600;
+      background:#fff; border:1px solid #e5e7eb; border-radius:12px;
+      box-shadow:0 8px 28px rgba(0,0,0,0.13); padding:14px;
+      width:252px; display:none;
+    }
+
+    .cal-nav {
+      display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;
+    }
+    .cal-nav-btn {
+      background:none; border:none; cursor:pointer;
+      font-size:17px; padding:2px 8px; border-radius:5px; color:#6b7280; line-height:1;
+    }
+    .cal-nav-btn:hover { background:#f3f4f6; color:#111827; }
+    #calMonthLabel { font-size:13px; font-weight:700; color:#111827; }
+
+    .cal-dow {
+      display:grid; grid-template-columns:repeat(7,1fr);
+      margin-bottom:4px;
+    }
+    .cal-dow span {
+      font-size:10px; text-align:center; color:#9ca3af; font-weight:600; padding:2px 0;
+    }
+    .cal-dow span:first-child { color:#ef4444; }
+    .cal-dow span:last-child  { color:#3b82f6; }
+
+    .cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:2px; }
+
+    .cal-day {
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      height:34px; gap:2px;
+      border-radius:6px; cursor:pointer; font-size:12px; color:#374151;
+      transition:background .1s;
+    }
+    .cal-day:not(.other-month):hover { background:#f3f4f6; }
+    .cal-day.other-month { color:#d1d5db; cursor:default; pointer-events:none; }
+    .cal-day.today > .cal-num { text-decoration:underline; text-underline-offset:2px; }
+    .cal-day.has-trips { font-weight:700; }
+    .cal-day.selected { background:#1d4ed8 !important; border-radius:8px; }
+    .cal-day.selected > .cal-num { color:#fff; }
+    .cal-day.selected > .cal-dot { background:rgba(255,255,255,0.75); }
+
+    .cal-num { line-height:1; }
+    .cal-dot {
+      width:5px; height:5px; border-radius:50%; background:#3b82f6;
+    }
+
+    /* ── 여정 드롭다운 / 여정 없음 메시지 ── */
+    #tripSelectWrap { flex:1; min-width:200px; max-width:380px; }
+    #tripSelect {
+      width:100%; font-size:12px; padding:5px 8px;
+      border:1px solid #d1d5db; border-radius:6px; background:#fff; color:#111827;
+    }
+    #noTripMsg {
+      display:none; font-size:12px; color:#9ca3af; font-style:italic;
+      padding:5px 8px; background:#f9fafb; border:1px solid #e5e7eb;
+      border-radius:6px;
+    }
+
+    /* ── 지도 루트 ── */
+    #geoMapRoot { flex:1; min-height:0; position:relative; }
+
+    .map-footer {
+      flex:0 0 auto; display:flex; align-items:center; gap:14px; padding:0 2px; flex-wrap:wrap;
+    }
+    #tripLegend { display:flex; gap:12px; flex-wrap:wrap; }
+    #tripLastUpdated { margin-left:auto; font-size:11px; color:#9ca3af; }
+
+    /* ── Pill 상태 배지 ── */
+    #tripStatusOverlay {
+      position:absolute; top:10px; left:50%; transform:translateX(-50%);
+      z-index:200; display:none; pointer-events:none;
+    }
+    #tripStatusOverlay .badge {
+      display:inline-flex; align-items:center; gap:7px;
+      padding:7px 14px; border-radius:999px;
+      font-size:13px; font-weight:700;
+      box-shadow:0 4px 14px rgba(0,0,0,0.22);
+      white-space:nowrap; backdrop-filter:blur(4px);
+    }
+    #tripStatusOverlay .badge .od-tag {
+      font-size:11px; font-weight:600; background:rgba(255,255,255,0.35);
+      padding:2px 7px; border-radius:999px; font-family:monospace;
+    }
+    #tripStatusOverlay .badge .score-tag { font-size:11px; font-weight:500; opacity:0.85; }
+
+    /* ── 여정 없음 지도 오버레이 ── */
+    #mapEmptyState {
+      position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+      z-index:200; display:none; pointer-events:none;
+      background:rgba(255,255,255,0.92); border:1px solid #e5e7eb;
+      border-radius:14px; padding:24px 32px; text-align:center;
+      box-shadow:0 4px 20px rgba(0,0,0,0.1);
+    }
+    #mapEmptyState .empty-icon { font-size:32px; display:block; margin-bottom:8px; }
+    #mapEmptyState .empty-text { font-size:13px; font-weight:600; color:#374151; }
+    #mapEmptyState .empty-sub  { font-size:11px; color:#9ca3af; margin-top:4px; }
+
+    /* ── 분석 카드 ── */
+    #tripAnalysisCard {
+      position:absolute; top:58px; right:12px; width:272px;
+      background:#fff; border-radius:14px;
+      box-shadow:0 8px 32px rgba(0,0,0,0.18),0 2px 8px rgba(0,0,0,0.08);
+      z-index:300; display:none; overflow:hidden; animation:cardSlideIn .25s ease;
+    }
+    @keyframes cardSlideIn {
+      from { opacity:0; transform:translateX(20px); }
+      to   { opacity:1; transform:translateX(0);    }
+    }
+    .tac-header { display:flex; align-items:center; gap:8px; padding:13px 14px 11px; }
+    .tac-hd-icon  { font-size:18px; line-height:1; flex:0 0 auto; }
+    .tac-hd-title { font-size:14px; font-weight:800; flex:1; }
+    .tac-close {
+      background:none; border:none; cursor:pointer; font-size:13px;
+      color:#9ca3af; padding:2px 4px; border-radius:4px; flex:0 0 auto; transition:background .15s;
+    }
+    .tac-close:hover { background:#f3f4f6; color:#374151; }
+    .tac-body { padding:0 14px 14px; }
+    .tac-time-row { margin-top:4px; }
+    .tac-time { font-size:11px; color:#6b7280; font-family:monospace; }
+    .tac-meta-row { display:flex; align-items:center; gap:8px; margin-top:6px; }
+    .tac-od-pill {
+      font-size:11px; font-weight:700; background:#f3f4f6; color:#374151;
+      padding:3px 9px; border-radius:999px; font-family:monospace;
+    }
+    .tac-dur { font-size:11px; color:#9ca3af; }
+    .tac-divider { height:1px; background:#f3f4f6; margin:10px 0; }
+    .tac-desc {
+      font-size:12px; color:#374151; line-height:1.6;
+      padding:8px 10px; border-radius:8px; background:#f9fafb; border-left:3px solid #e5e7eb;
+    }
+    .tac-score-section { margin-top:12px; }
+    .tac-score-title {
+      font-size:10px; font-weight:700; text-transform:uppercase;
+      letter-spacing:.06em; color:#9ca3af; margin-bottom:5px;
+    }
+    .tac-score-nums { display:flex; align-items:baseline; gap:5px; margin-bottom:7px; }
+    .tac-score-main { font-size:22px; font-weight:800; color:#111827; }
+    .tac-score-sep  { font-size:13px; color:#9ca3af; }
+    .tac-score-thr  { font-size:12px; color:#6b7280; }
+    .tac-score-over { margin-left:auto; font-size:11px; font-weight:700; background:#fef3f2; padding:2px 7px; border-radius:4px; }
+    .tac-bar-wrap { position:relative; margin-bottom:4px; }
+    .tac-bar-track { height:7px; background:#f3f4f6; border-radius:999px; overflow:hidden; }
+    .tac-bar-fill  { height:100%; border-radius:999px; transition:width .4s ease; }
+    .tac-bar-labels { display:flex; justify-content:space-between; font-size:10px; color:#9ca3af; margin-top:2px; }
+    .tac-score-status { font-size:11px; font-weight:600; margin-top:4px; }
   </style>
 </head>
 <body>
   <div class="page-header">
     <h1>위치 시각화</h1>
-    <div class="device-id">device_id: {{ device_id }}</div>
+    <div class="device-id">{{ device_id }}</div>
+    <div class="mode-tabs">
+      <button class="mode-tab active" id="modeGpsBtn">위치 기록</button>
+      <button class="mode-tab" id="modeTripBtn">여정 분석</button>
+    </div>
   </div>
-  <div id="geoMapRoot"></div>
+
+  <div class="page-body">
+    <!-- 여정 분석 필터 바 -->
+    <div class="trip-filter-bar" id="tripFilterBar" style="display:none">
+      <!-- 커스텀 캘린더 -->
+      <div id="calWrap">
+        <button class="cal-trigger" id="calTrigger">📅 날짜 선택</button>
+        <button class="cal-clear"  id="calClear"   title="날짜 초기화">×</button>
+        <div class="cal-panel" id="calPanel">
+          <div class="cal-nav">
+            <button class="cal-nav-btn" id="calPrev">‹</button>
+            <span id="calMonthLabel"></span>
+            <button class="cal-nav-btn" id="calNext">›</button>
+          </div>
+          <div class="cal-dow">
+            <span>일</span><span>월</span><span>화</span><span>수</span>
+            <span>목</span><span>금</span><span>토</span>
+          </div>
+          <div class="cal-grid" id="calGrid"></div>
+        </div>
+      </div>
+      <!-- 여정 드롭다운 / 없음 메시지 -->
+      <div id="tripSelectWrap">
+        <select id="tripSelect">
+          <option value="latest">최신 결과 (자동 갱신)</option>
+        </select>
+        <div id="noTripMsg">이 날짜에는 여정이 없습니다</div>
+      </div>
+      <span id="tripFilterStatus"></span>
+    </div>
+
+    <div id="geoMapRoot">
+      <div id="tripStatusOverlay">
+        <div class="badge" id="tripStatusBadge"></div>
+      </div>
+      <!-- 여정 없음 지도 오버레이 -->
+      <div id="mapEmptyState">
+        <span class="empty-icon">📭</span>
+        <div class="empty-text" id="emptyStateText">이 날짜에는 여정이 없습니다</div>
+        <div class="empty-sub">다른 날짜를 선택하거나 최신 결과를 확인하세요</div>
+      </div>
+      <div id="tripAnalysisCard"></div>
+    </div>
+
+    <div class="map-footer">
+      <span id="rawTrackLegend" style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#374151;flex-shrink:0">
+        <span style="display:inline-flex;align-items:center;gap:3px">
+          <span style="display:inline-block;width:16px;height:2px;background:#38bdf8;border-radius:2px"></span>
+          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#38bdf8;border:1.5px solid #fff;box-shadow:0 0 0 1px #38bdf8"></span>
+        </span>
+        위치 기록
+      </span>
+      <div id="tripLegend"></div>
+      <div id="tripLastUpdated"></div>
+    </div>
+  </div>
 
   <script type="module">
     import { mountGeoMapWidget } from "{% static 'geo/js/geo_map_widget.js' %}";
-    mountGeoMapWidget(document.getElementById("geoMapRoot"), "{{ device_id|escapejs }}");
+    import { renderTripMap }     from "{% static 'geo/js/geo_map.js' %}";
+
+    const DEVICE_ID = "{{ device_id|escapejs }}";
+
+    // ── 위젯 마운트 ──────────────────────────────────────────────────────────
+    const widget = mountGeoMapWidget(document.getElementById("geoMapRoot"), DEVICE_ID);
+
+    // widget이 innerHTML 초기화 후 오버레이/카드 복원
+    const root = document.getElementById('geoMapRoot');
+    ['tripStatusOverlay','mapEmptyState','tripAnalysisCard'].forEach(id => {
+      if (!document.getElementById(id)) {
+        const el = document.createElement('div');
+        el.id = id;
+        if (id === 'tripStatusOverlay')
+          el.innerHTML = '<div class="badge" id="tripStatusBadge"></div>';
+        root.appendChild(el);
+      }
+    });
+
+    // ── 상수 ─────────────────────────────────────────────────────────────────
+    const LABEL_EMOJI = { known_normal:'✅', unseen_path_same_od:'⚠️', anomaly:'🚨' };
+
+    const CARD_CONFIG = {
+      known_normal:        { icon:'✅', title:'정상 경로',      color:'#10b981', text:'#065f46', headerBg:'#f0fdf4', barColor:'#10b981', desc:'기존 이동 패턴과 유사한 경로를 이동했습니다.' },
+      unseen_path_same_od: { icon:'⚠️', title:'새로운 경로',    color:'#f97316', text:'#7c2d12', headerBg:'#fff7ed', barColor:'#f97316', desc:'출발지·도착지는 동일하지만, 기존에 없던 새로운 경로를 이용했습니다.' },
+      anomaly:             { icon:'🚨', title:'이상 경로 감지', color:'#ef4444', text:'#7f1d1d', headerBg:'#fef2f2', barColor:'#ef4444', desc:'기존 기준치를 크게 벗어난 이동이 감지되었습니다.' },
+    };
+
+    // ── 유틸 ─────────────────────────────────────────────────────────────────
+    function fmtKst(iso) {
+      const kst = new Date(new Date(iso).getTime() + 9 * 3600 * 1000);
+      return `${String(kst.getUTCMonth()+1).padStart(2,'0')}.${String(kst.getUTCDate()).padStart(2,'0')} ${String(kst.getUTCHours()).padStart(2,'0')}:${String(kst.getUTCMinutes()).padStart(2,'0')}`;
+    }
+
+    function kstTodayStr() {
+      const kst = new Date(Date.now() + 9 * 3600 * 1000);
+      return kst.toISOString().slice(0, 10);
+    }
+
+    // ── 분석 카드 렌더 ────────────────────────────────────────────────────────
+    function renderCard(data) {
+      const card = document.getElementById('tripAnalysisCard');
+      if (!card) return;
+      const r = data.anomaly_result;
+      if (!r) { card.style.display = 'none'; return; }
+
+      const cfg  = CARD_CONFIG[r.final_route_label] || CARD_CONFIG.anomaly;
+      const od   = r.od_key ? r.od_key.split('_').slice(-2).join(' → ') : '-';
+      const durMin = Math.round((new Date(r.trip_end_time) - new Date(r.trip_start_time)) / 60000);
+
+      let scoreHtml = '';
+      if (r.dtw_score != null && r.threshold != null) {
+        const ratio = r.dtw_score / r.threshold;
+        const fill  = Math.min(100, ratio * 100).toFixed(1);
+        const over  = r.dtw_score > r.threshold;
+        scoreHtml = `
+          <div class="tac-score-section">
+            <div class="tac-score-title">경로 유사도 분석</div>
+            <div class="tac-score-nums">
+              <span class="tac-score-main" style="color:${cfg.color}">${Math.round(r.dtw_score)}</span>
+              <span class="tac-score-sep">/</span>
+              <span class="tac-score-thr">기준 ${Math.round(r.threshold)}</span>
+              ${over ? `<span class="tac-score-over" style="color:${cfg.color};background:${cfg.headerBg}">+${((ratio-1)*100).toFixed(0)}% 초과</span>` : ''}
+            </div>
+            <div class="tac-bar-wrap">
+              <div class="tac-bar-track"><div class="tac-bar-fill" style="width:${fill}%;background:${cfg.barColor}"></div></div>
+              <div class="tac-bar-labels"><span>0</span><span>기준 (${Math.round(r.threshold)})</span></div>
+            </div>
+            <div class="tac-score-status" style="color:${cfg.color}">
+              ${over ? '✗ 임계값 초과' : '✓ 임계값 이하 — 정상 범위'}
+            </div>
+          </div>`;
+      }
+
+      card.innerHTML = `
+        <div class="tac-header" style="background:${cfg.headerBg};border-bottom:2px solid ${cfg.color}22">
+          <span class="tac-hd-icon">${cfg.icon}</span>
+          <span class="tac-hd-title" style="color:${cfg.text}">${cfg.title}</span>
+          <button class="tac-close" onclick="document.getElementById('tripAnalysisCard').style.display='none'">✕</button>
+        </div>
+        <div class="tac-body">
+          <div class="tac-time-row"><span class="tac-time">${fmtKst(r.trip_start_time)} → ${fmtKst(r.trip_end_time)}</span></div>
+          <div class="tac-meta-row">
+            <span class="tac-od-pill">${od}</span>
+            <span class="tac-dur">소요 ${durMin}분</span>
+          </div>
+          <div class="tac-divider"></div>
+          <div class="tac-desc" style="border-left-color:${cfg.color}">${cfg.desc}</div>
+          ${scoreHtml}
+        </div>`;
+      card.style.display = 'block';
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 커스텀 캘린더
+    // ═══════════════════════════════════════════════════════════════════════
+    let calYear       = 0;
+    let calMonth      = 0;   // 0-indexed
+    let calSelectedDate   = null;   // 'YYYY-MM-DD' or null
+    let calDatesWithTrips = new Set();
+    let calPanelOpen  = false;
+
+    function initCalendar() {
+      const kst = new Date(Date.now() + 9 * 3600 * 1000);
+      calYear  = kst.getUTCFullYear();
+      calMonth = kst.getUTCMonth();
+      renderCalendarGrid();
+      fetchCalendarData(calYear, calMonth + 1);
+    }
+
+    function renderCalendarGrid() {
+      document.getElementById('calMonthLabel').textContent = `${calYear}년 ${calMonth + 1}월`;
+
+      const grid    = document.getElementById('calGrid');
+      grid.innerHTML = '';
+
+      const firstDow    = new Date(Date.UTC(calYear, calMonth, 1)).getUTCDay();
+      const daysInMonth = new Date(Date.UTC(calYear, calMonth + 1, 0)).getUTCDate();
+      const daysInPrev  = new Date(Date.UTC(calYear, calMonth, 0)).getUTCDate();
+      const today       = kstTodayStr();
+
+      // prev month tail
+      for (let i = firstDow - 1; i >= 0; i--) {
+        const el = document.createElement('div');
+        el.className = 'cal-day other-month';
+        el.innerHTML = `<span class="cal-num">${daysInPrev - i}</span>`;
+        grid.appendChild(el);
+      }
+
+      // current month
+      for (let d = 1; d <= daysInMonth; d++) {
+        const mm      = String(calMonth + 1).padStart(2, '0');
+        const dd      = String(d).padStart(2, '0');
+        const dateStr = `${calYear}-${mm}-${dd}`;
+        const hasTrip = calDatesWithTrips.has(dateStr);
+
+        const el = document.createElement('div');
+        el.className = 'cal-day' +
+          (hasTrip              ? ' has-trips' : '') +
+          (dateStr === today    ? ' today'     : '') +
+          (dateStr === calSelectedDate ? ' selected' : '');
+
+        el.innerHTML = `<span class="cal-num">${d}</span>` +
+          (hasTrip ? '<div class="cal-dot"></div>' : '');
+
+        el.addEventListener('click', () => selectCalDate(dateStr));
+        grid.appendChild(el);
+      }
+
+      // next month head (fill to 42 cells = 6 rows)
+      const total = firstDow + daysInMonth;
+      const fill  = total % 7 === 0 ? 0 : 7 - (total % 7);
+      for (let d = 1; d <= fill; d++) {
+        const el = document.createElement('div');
+        el.className = 'cal-day other-month';
+        el.innerHTML = `<span class="cal-num">${d}</span>`;
+        grid.appendChild(el);
+      }
+    }
+
+    async function fetchCalendarData(year, month) {
+      try {
+        const params = new URLSearchParams({ device_id: DEVICE_ID, year, month });
+        const res = await fetch(`/api/geo/trip_calendar/?${params}`, { cache:'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        calDatesWithTrips = new Set(data.dates_with_trips || []);
+        renderCalendarGrid();
+      } catch (e) {
+        console.error('[cal]', e);
+      }
+    }
+
+    function openCalPanel()  { document.getElementById('calPanel').style.display = 'block'; calPanelOpen = true; }
+    function closeCalPanel() { document.getElementById('calPanel').style.display = 'none';  calPanelOpen = false; }
+    function toggleCalPanel() { calPanelOpen ? closeCalPanel() : openCalPanel(); }
+
+    async function selectCalDate(dateStr) {
+      calSelectedDate = dateStr;
+      closeCalPanel();
+      renderCalendarGrid();
+      const trigger = document.getElementById('calTrigger');
+      trigger.textContent = `📅 ${dateStr}`;
+      trigger.classList.add('has-date');
+      document.getElementById('calClear').style.display = '';
+      await loadTripList(dateStr);
+      await renderSelectedTrip();
+    }
+
+    async function clearCalDate() {
+      calSelectedDate = null;
+      renderCalendarGrid();
+      const trigger = document.getElementById('calTrigger');
+      trigger.textContent = '📅 날짜 선택';
+      trigger.classList.remove('has-date');
+      document.getElementById('calClear').style.display = 'none';
+      await loadTripList(null);
+      await renderSelectedTrip();
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 모드 관리
+    // ═══════════════════════════════════════════════════════════════════════
+    const MODE_GPS  = 'gps';
+    const MODE_TRIP = 'trip';
+    let currentMode      = MODE_GPS;
+    let tripPollTimer    = null;
+    let lastRenderedTripKey = null;  // 'tripId:trip_end_time' — fitBounds 중복 방지용
+
+    function stopTripPoll() {
+      if (tripPollTimer) { clearInterval(tripPollTimer); tripPollTimer = null; }
+    }
+
+    async function clearTripOverlays() {
+      const kmap = await widget.getMap();
+      if (kmap) {
+        renderTripMap(
+          { anomaly_result:null, current_route:[], baseline_routes:[], anchors:[] },
+          kmap,
+          { statusElId:'tripStatusBadge', legendElId:'tripLegend', tripActiveKey:'__geoPageTripActive', pillBadge:true }
+        );
+      }
+      const ov = document.getElementById('tripStatusOverlay');
+      if (ov) ov.style.display = 'none';
+      const card = document.getElementById('tripAnalysisCard');
+      if (card) card.style.display = 'none';
+      showEmptyState(false);
+    }
+
+    function showEmptyState(visible, text) {
+      const el = document.getElementById('mapEmptyState');
+      if (!el) return;
+      el.style.display = visible ? 'block' : 'none';
+      if (text) {
+        const t = document.getElementById('emptyStateText');
+        if (t) t.textContent = text;
+      }
+    }
+
+    async function setMode(mode) {
+      if (currentMode === mode) return;
+      currentMode = mode;
+
+      document.getElementById('modeGpsBtn').classList.toggle('active',  mode === MODE_GPS);
+      document.getElementById('modeTripBtn').classList.toggle('active', mode === MODE_TRIP);
+
+      const filterBar      = document.getElementById('tripFilterBar');
+      const rawTrackLegend = document.getElementById('rawTrackLegend');
+      const lastUpdatedEl  = document.getElementById('tripLastUpdated');
+
+      if (mode === MODE_GPS) {
+        stopTripPoll();
+        await clearTripOverlays();
+        filterBar.style.display      = 'none';
+        rawTrackLegend.style.display = '';
+        if (lastUpdatedEl) lastUpdatedEl.textContent = '';
+        widget.setFilterBarVisible(true);
+        widget.resumePolling();
+      } else {
+        widget.pausePolling();
+        widget.clearGpsOverlays();
+        widget.setFilterBarVisible(false);
+        filterBar.style.display      = '';
+        rawTrackLegend.style.display = 'none';
+        initCalendar();
+        await loadTripList(calSelectedDate);
+        await renderSelectedTrip();
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 여정 분석 모드 로직
+    // ═══════════════════════════════════════════════════════════════════════
+    async function loadTripList(dateStr) {
+      const statusEl  = document.getElementById('tripFilterStatus');
+      const select    = document.getElementById('tripSelect');
+      const noTripMsg = document.getElementById('noTripMsg');
+
+      if (!dateStr) {
+        // 날짜 미선택 → 최신 결과 모드
+        select.style.display  = '';
+        noTripMsg.style.display = 'none';
+        select.innerHTML = '<option value="latest">최신 결과 (자동 갱신)</option>';
+        if (statusEl) statusEl.textContent = '';
+        return true;
+      }
+
+      if (statusEl) statusEl.textContent = '불러오는 중...';
+      try {
+        const params = new URLSearchParams({ device_id: DEVICE_ID, date: dateStr });
+        const res  = await fetch(`/api/geo/trip_history/?${params}`, { cache:'no-store' });
+        if (!res.ok) throw new Error('fetch failed');
+        const data = await res.json();
+        const trips = data.trips || [];
+
+        if (trips.length === 0) {
+          select.style.display    = 'none';
+          noTripMsg.style.display = '';
+          if (statusEl) statusEl.textContent = '';
+          return false;
+        }
+
+        noTripMsg.style.display = 'none';
+        select.style.display    = '';
+        select.innerHTML = '';
+        trips.forEach(trip => {
+          const opt   = document.createElement('option');
+          opt.value   = trip.id;
+          const od    = trip.od_key ? trip.od_key.split('_').slice(-2).join(' → ') : '-';
+          const emoji = LABEL_EMOJI[trip.final_route_label] || '❓';
+          opt.textContent = `${emoji}  ${od}  ·  ${fmtKst(trip.trip_start_time)} ~ ${fmtKst(trip.trip_end_time)}`;
+          select.appendChild(opt);
+        });
+        if (statusEl) statusEl.textContent = `${trips.length}개 여정`;
+        return true;
+      } catch (e) {
+        if (statusEl) statusEl.textContent = '불러오기 실패';
+        console.error('[trip-history]', e);
+        return false;
+      }
+    }
+
+    async function renderSelectedTrip() {
+      if (currentMode !== MODE_TRIP) return;
+      stopTripPoll();
+      lastRenderedTripKey = null;  // trip 변경 → 다음 렌더에서 fitBounds 허용
+
+      // 날짜 선택했는데 여정이 없는 경우
+      const noTripMsg = document.getElementById('noTripMsg');
+      if (noTripMsg && noTripMsg.style.display !== 'none') {
+        await clearTripOverlays();
+        showEmptyState(true, '이 날짜에는 여정이 없습니다');
+        const lastEl = document.getElementById('tripLastUpdated');
+        if (lastEl) lastEl.textContent = '';
+        return;
+      }
+
+      const val = document.getElementById('tripSelect').value;
+      showEmptyState(false);
+
+      if (!val || val === 'latest') {
+        await fetchAndRenderTrip(null);
+        tripPollTimer = setInterval(() => fetchAndRenderTrip(null), 15000);
+      } else {
+        await fetchAndRenderTrip(val);
+      }
+    }
+
+    async function fetchAndRenderTrip(tripId) {
+      if (currentMode !== MODE_TRIP) return;
+      try {
+        const params = new URLSearchParams({ device_id: DEVICE_ID, t: Date.now() });
+        if (tripId) params.set('trip_id', tripId);
+
+        const res = await fetch(`/api/geo/trip_map/?${params}`, { cache:'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+
+        const tripKey = `${tripId ?? 'latest'}:${data.anomaly_result?.trip_end_time ?? ''}`;
+        const skipFitBounds = tripKey === lastRenderedTripKey;
+        if (data.anomaly_result) lastRenderedTripKey = tripKey;
+
+        const kmap = await widget.getMap();
+        if (kmap) {
+          renderTripMap(data, kmap, {
+            statusElId:    'tripStatusBadge',
+            legendElId:    'tripLegend',
+            tripActiveKey: '__geoPageTripActive',
+            pillBadge:     true,
+            skipFitBounds,
+          });
+        }
+
+        const ov = document.getElementById('tripStatusOverlay');
+        if (ov) ov.style.display = data.anomaly_result ? 'block' : 'none';
+
+        renderCard(data);
+
+        const lastEl = document.getElementById('tripLastUpdated');
+        if (lastEl) {
+          const t = new Date().toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+          lastEl.textContent = data.anomaly_result ? `갱신: ${t}` : `결과 없음 · ${t}`;
+        }
+      } catch (e) {
+        console.error('[trip-analysis]', e);
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 이벤트 바인딩
+    // ═══════════════════════════════════════════════════════════════════════
+    document.getElementById('modeGpsBtn').addEventListener('click',  () => setMode(MODE_GPS));
+    document.getElementById('modeTripBtn').addEventListener('click', () => setMode(MODE_TRIP));
+
+    document.getElementById('calTrigger').addEventListener('click', e => {
+      e.stopPropagation();
+      toggleCalPanel();
+    });
+    document.getElementById('calClear').addEventListener('click', e => {
+      e.stopPropagation();
+      clearCalDate();
+    });
+
+    document.getElementById('calPrev').addEventListener('click', e => {
+      e.stopPropagation();
+      calMonth--;
+      if (calMonth < 0) { calMonth = 11; calYear--; }
+      renderCalendarGrid();
+      fetchCalendarData(calYear, calMonth + 1);
+    });
+    document.getElementById('calNext').addEventListener('click', e => {
+      e.stopPropagation();
+      calMonth++;
+      if (calMonth > 11) { calMonth = 0; calYear++; }
+      renderCalendarGrid();
+      fetchCalendarData(calYear, calMonth + 1);
+    });
+
+    document.getElementById('tripSelect').addEventListener('change', () => renderSelectedTrip());
+
+    // 패널 외부 클릭 시 닫기
+    document.addEventListener('click', e => {
+      if (calPanelOpen && !document.getElementById('calWrap').contains(e.target)) {
+        closeCalPanel();
+      }
+    });
   </script>
 </body>
 </html>

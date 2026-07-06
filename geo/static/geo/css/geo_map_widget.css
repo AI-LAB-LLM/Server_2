@@ -72,6 +72,11 @@
   overflow: hidden;
 }
 
+/* 카카오맵 타일 이미지만 채도 낮춤 — SVG 폴리라인·커스텀 오버레이는 영향 없음 */
+.geo-map-canvas img {
+  filter: saturate(0.28) brightness(1.06) !important;
+}
+
 .geo-zoom-control {
   position: absolute;
   top: 10px;

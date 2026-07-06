@@ -251,8 +251,8 @@ export function mountGeoMapWidget(container, deviceId, options = {}) {
       }
       window.kakao.maps.load(() => {
         map = new window.kakao.maps.Map(mapEl, {
-          center: new window.kakao.maps.LatLng(37.5665, 126.9780),
-          level: 6,
+          center: new window.kakao.maps.LatLng(37.494, 126.997),  // 두 앵커 중간
+          level: 9,
         });
         resolve(map);
       });
@@ -267,6 +267,11 @@ export function mountGeoMapWidget(container, deviceId, options = {}) {
   })();
 
   return {
+    getMap() { return ensureMap(); },
+    clearGpsOverlays() { clearOverlays(); lastSignature = null; },
+    setFilterBarVisible(v) { filterBar.style.display = v ? '' : 'none'; },
+    pausePolling() { stopPolling(); },
+    resumePolling() { fetchAndRender(); startPollingIfNeeded(); },
     destroy() {
       destroyed = true;
       stopPolling();
