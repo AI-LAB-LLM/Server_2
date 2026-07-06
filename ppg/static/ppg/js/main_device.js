@@ -1,42 +1,10 @@
-// ppg/static/ppg/js/main_device.js
-
-import { setItems, appendIrFromItems, resetIrbuf } from './state.js';
-import { fetchRecordsWithPulses, startBaselineSession, fetchModelStatus } from './api.js';
+import { setItems, appendIrFromItems } from './state.js';
+import { fetchRecordsWithPulses, fetchModelStatus } from './api.js';
 import { renderIrHolding, renderWearStatus } from './charts.js';
 
-let isFetching = false;
+let isFetching  = false;
 const POLL_MS   = 4000;
 const DEVICE_ID = window.DASH_DEVICE_ID || null;
-
-// ── 카카오맵 ──────────────────────────────────
-let kmap = null, kmarker = null;
-
-function isValidKoreaLatLon(lat, lon) {
-  return Number.isFinite(lat) && Number.isFinite(lon) &&
-         lat >= 33 && lat <= 39 && lon >= 124 && lon <= 132;
-}
-
-function ensureKakaoMap(lat, lon) {
-  if (!window.kakao || !window.kakao.maps) return;
-  const y = Number(lat), x = Number(lon);
-  const useLat = isValidKoreaLatLon(y, x) ? y : 37.5665;
-  const useLon = isValidKoreaLatLon(y, x) ? x : 126.9780;
-
-  if (!kmap) {
-    window.kakao.maps.load(() => {
-      const container = document.getElementById('map');
-      if (!container) return;
-      const center = new kakao.maps.LatLng(useLat, useLon);
-      kmap    = new kakao.maps.Map(container, { center, level: 3 });
-      kmarker = new kakao.maps.Marker({ position: center });
-      kmarker.setMap(kmap);
-    });
-    return;
-  }
-  const pos = new kakao.maps.LatLng(useLat, useLon);
-  kmap.setCenter(pos);
-  if (kmarker) kmarker.setPosition(pos);
-}
 
 // ── KPI ──────────────────────────────────────
 function updateKpi(items) {
@@ -49,16 +17,12 @@ function updateKpi(items) {
     return;
   }
 
-  if (!window.__sessionStartTime) {
-    elBsl.textContent = '-';
-    return;
+  const baselineCount = items.filter(it => it.is_baseline).length;
+  if (baselineCount === 0) {
+    elBsl.textContent = '대기 중...';
+  } else {
+    elBsl.textContent = `⏳ Calibration 중 (${baselineCount}개 수집)`;
   }
-
-  const baselineCount = items.filter(it =>
-    it.is_baseline &&
-    new Date(it.timestamp) >= window.__sessionStartTime
-  ).length;
-  elBsl.textContent = `⏳ ${baselineCount} / 8 chunks`;
 }
 
 // ── IMU ──────────────────────────────────────
@@ -66,81 +30,34 @@ function updateImu(st) {
   const imuEl    = document.getElementById('imuLevelText');
   const imuLevel = document.getElementById('imuDangerLevel');
   const tsEl     = document.getElementById('imuTs');
-  if (!st?.ok) return;
+  if (!st?.ok) {
+    if (imuEl) imuEl.textContent = '데이터 없음';
+    if (imuLevel) imuLevel.textContent = '';
+    return;
+  }
 
   if (imuEl)    imuEl.textContent    = st.imu_display ?? '안정';
   if (imuLevel) {
     const lv = st.imu_danger_level;
-    imuLevel.textContent   = lv != null ? `위험도: ${lv}` : '';
-    imuLevel.style.color   = lv >= 4 ? '#ef4444' : lv >= 2 ? '#f97316' : '#6b7280';
+    imuLevel.textContent = lv != null ? `위험도: ${lv}` : '';
+    imuLevel.style.color = lv >= 4 ? '#ef4444' : lv >= 2 ? '#f97316' : '#6b7280';
   }
   if (tsEl) tsEl.textContent = st.timestamp ? `(${st.timestamp})` : '';
 }
 
 // ── 딜레이 ────────────────────────────────────
-// 새 서버는 received_at 없음 → sensor_window started_at 기준으로 현재 시간과 비교
 function updateDelay(items) {
   const delayEl = document.getElementById('delayText');
   if (!delayEl || !items.length) return;
 
-  const last = items[items.length - 1];
-  const windowTs = last?.timestamp;   // SensorWindow.started_at
-  if (!windowTs) {
-    delayEl.textContent = '-';
-    return;
-  }
+  const last     = items[items.length - 1];
+  const windowTs = last?.timestamp;
+  if (!windowTs) { delayEl.textContent = '-'; return; }
 
-  const nowMs      = Date.now();
-  const windowMs   = new Date(windowTs).getTime();
-  const diff       = (nowMs - windowMs) / 1000;
-
+  const diff = (Date.now() - new Date(windowTs).getTime()) / 1000;
   delayEl.textContent = `데이터 지연: ${diff.toFixed(1)}초`;
   delayEl.style.color = diff > 30 ? '#ef4444' : diff > 15 ? '#f97316' : '#10b981';
 }
-
-// ── Baseline 팝업 ─────────────────────────────
-window.openBaselinePopup = function(totalSec) {
-  const popup    = document.getElementById('wearPopup');
-  const overlay  = document.getElementById('wearOverlay');
-  const bar      = document.getElementById('popupBar');
-  const counter  = document.getElementById('popupCounter');
-  const status   = document.getElementById('popupStatus');
-  const text     = document.getElementById('popupText');
-  const closeBtn = document.getElementById('wearPopupClose');
-  if (!popup) return;
-
-  popup.classList.remove('wear-popup--hidden');
-  if (overlay) overlay.classList.add('wear-overlay--visible');
-  document.body.classList.add('modal-open');
-
-  status.textContent = 'Collecting Baseline';
-  text.textContent   = `Keep the watch on for ${totalSec}s`;
-
-  const startMs = Date.now();
-  const iv = setInterval(() => {
-    const elapsed = Math.min(totalSec, (Date.now() - startMs) / 1000);
-    const pct = Math.round((elapsed / totalSec) * 100);
-    bar.style.width = pct + '%';
-    counter.textContent = `${Math.round(elapsed)}s / ${totalSec}s`;
-
-    if (elapsed >= totalSec) {
-      clearInterval(iv);
-      status.textContent = 'Baseline Complete';
-      text.textContent   = 'Starting inference...';
-      setTimeout(() => closePopup(), 2000);
-    }
-  }, 500);
-
-  function closePopup() {
-    clearInterval(iv);
-    popup.classList.add('wear-popup--hidden');
-    if (overlay) overlay.classList.remove('wear-overlay--visible');
-    document.body.classList.remove('modal-open');
-  }
-
-  closeBtn?.addEventListener('click', closePopup, { once: true });
-  overlay?.addEventListener('click', closePopup, { once: true });
-};
 
 // ── 메인 폴링 ────────────────────────────────
 async function fetchAndRender() {
@@ -156,15 +73,16 @@ async function fetchAndRender() {
     updateDelay(items);
 
     if (DEVICE_ID) {
-      const res = await fetch(
-        `/ppg/api/event_status/?device_id=${encodeURIComponent(DEVICE_ID)}&t=${Date.now()}`,
-        { cache: 'no-store' }
-      );
-      if (res.ok) {
-        const st = await res.json();
-        updateImu(st);
-        ensureKakaoMap(st.latitude, st.longitude);
-      }
+      try {
+        const res = await fetch(
+          `/ppg/api/event_status/?device_id=${encodeURIComponent(DEVICE_ID)}&t=${Date.now()}`,
+          { cache: 'no-store' }
+        );
+        if (res.ok) {
+          const st = await res.json();
+          updateImu(st);
+        }
+      } catch (e) {}
     }
   } catch (e) {
     console.error('fetchAndRender error:', e);
@@ -177,23 +95,9 @@ async function fetchAndRender() {
 (async () => {
   try {
     const status = await fetchModelStatus();
-    const thr = status?.model_config?.threshold;
+    const thr    = status?.model_config?.threshold;
     if (thr && Number.isFinite(thr)) window.__apneaThr = thr;
   } catch (e) {}
-
-  ensureKakaoMap(null, null);
-
-  document.getElementById('btnStartNew')?.addEventListener('click', async () => {
-    const deviceId = DEVICE_ID || '_default_';
-    try {
-      await startBaselineSession(deviceId, Date.now());
-      window.__sessionStartTime = new Date();
-      resetIrbuf();
-      openBaselinePopup(96);
-    } catch (e) {
-      console.warn('[baseline] start failed', e);
-    }
-  });
 
   const INIT = Array.isArray(window.ITEMS) ? window.ITEMS : [];
   setItems(INIT);
