@@ -30,8 +30,10 @@ class Result(models.Model):
         help_text="PPG, IMU 또는 GEO",
     )
 
-    timestamp = models.BigIntegerField(
-        help_text="UNIX timestamp milliseconds. 분석 결과가 대표하는 기준 시각",
+    risk_detected = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="위험 감지 여부. 결과가 없으면 null",
     )
 
     risk_level = models.PositiveSmallIntegerField(
@@ -40,16 +42,14 @@ class Result(models.Model):
         help_text="1~5 위험도 등급. 결과가 없으면 null",
     )
 
-    risk_detected = models.BooleanField(
-        null=True,
-        blank=True,
-        help_text="위험 감지 여부. 결과가 없으면 null",
-    )
-
     probability = models.FloatField(
         null=True,
         blank=True,
         help_text="위험 확률값. 결과가 없으면 null",
+    )
+
+    timestamp = models.DateTimeField(
+        help_text="분석 결과가 대표하는 기준 시각 (KST)",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)

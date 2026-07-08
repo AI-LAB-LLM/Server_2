@@ -303,9 +303,11 @@
     };
 
     // ── 유틸 ─────────────────────────────────────────────────────────────────
+    // API가 반환하는 timestamp는 오프셋 없는 KST 벽시계 문자열이므로 Date 파싱 없이 그대로 표기한다.
     function fmtKst(iso) {
-      const kst = new Date(new Date(iso).getTime() + 9 * 3600 * 1000);
-      return `${String(kst.getUTCMonth()+1).padStart(2,'0')}.${String(kst.getUTCDate()).padStart(2,'0')} ${String(kst.getUTCHours()).padStart(2,'0')}:${String(kst.getUTCMinutes()).padStart(2,'0')}`;
+      const [datePart, timePart = ''] = iso.split('T');
+      const [, month, day] = datePart.split('-');
+      return `${month}.${day} ${timePart.slice(0, 5)}`;
     }
 
     function kstTodayStr() {

@@ -455,21 +455,30 @@ def add_final_route_label_simple(
         score = row.get("score_topk_mean", np.nan)
         threshold = row.get("threshold", np.nan)
 
+        # 같은 OD baseline 비교가 정상적으로 안 된 경우는 anomaly
         if status != "ok":
             return "anomaly"
 
         if pd.isna(score) or pd.isna(threshold):
             return "anomaly"
 
-        if score <= threshold:
-            return "known_normal"
+        # threshold를 조금 초과해도 margin 안이면 정상 처리
+        effective_threshold = threshold * unseen_margin_ratio
 
-        if score <= threshold * unseen_margin_ratio:
-            return "unseen_path_same_od"
+        if score <= effective_threshold:
+            return "known_normal"
 
         return "anomaly"
 
     out["final_route_label"] = out.apply(classify, axis=1)
+
+    # UI나 DB에서 is_anomaly를 쓰는 경우를 위해 final_route_label 기준으로 다시 맞춤
+    out["is_anomaly"] = (out["final_route_label"] == "anomaly").astype(int)
+
+    # 확인용 컬럼
+    out["base_threshold"] = out["threshold"]
+    out["effective_threshold"] = out["threshold"] * unseen_margin_ratio
+    out["threshold_margin_ratio"] = unseen_margin_ratio
 
     return out
 

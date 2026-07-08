@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone as dt_timezone
+
 from rest_framework import status, serializers
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -12,6 +14,8 @@ from drf_spectacular.utils import (
 from monitoring.utils import get_or_create_protectee_by_device_id
 from .models import Result
 from .serializers import ResultCreateSerializer, ResultSerializer
+
+KST = dt_timezone(timedelta(hours=9))
 
 
 ResultSaveResponseSerializer = inline_serializer(
@@ -132,11 +136,14 @@ def create_result(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    timestamp_ms = serializer.validated_data["timestamp"]
+    timestamp = datetime.fromtimestamp(timestamp_ms / 1000, tz=KST).replace(tzinfo=None)
+
     result = Result.objects.create(
         device_id=protectee.device_id,
         mode=serializer.validated_data["mode"],
         event_type=serializer.validated_data["event_type"],
-        timestamp=serializer.validated_data["timestamp"],
+        timestamp=timestamp,
         probability=serializer.validated_data.get("probability"),
         risk_level=serializer.validated_data.get("risk_level"),
         risk_detected=serializer.validated_data.get("risk_detected"),

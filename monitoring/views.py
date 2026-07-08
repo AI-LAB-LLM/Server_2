@@ -19,6 +19,7 @@ from .utils import (
     get_or_create_protectee_by_device_id,
     get_or_create_session_for_sensor_data,
 )
+from imu.services import run_imu_level_for_window
 
 
 SensorWindowResponseSerializer = inline_serializer(
@@ -28,6 +29,9 @@ SensorWindowResponseSerializer = inline_serializer(
         "device_id": serializers.CharField(),
         "received_window_count": serializers.IntegerField(help_text="현재 세션에서 수신된 윈도우 개수"),
         "mode": serializers.IntegerField(help_text="1=THREAT, 2=PERIODIC, 3=캘리브레이션"),
+        "imu": serializers.DictField(
+            allow_null=True,
+        ),
     },
 )
 
@@ -129,6 +133,12 @@ Request body:
                 "device_id": "P002",
                 "received_window_count": 1,
                 "mode": 1,
+                "imu": {
+                    "imu_status": "saved",
+                    "result_id": 1,
+                    "level": 2,
+                    "probs": [0.1, 0.2, 0.3, 0.2, 0.2],
+                },
             },
             response_only=True,
             status_codes=["201"],
@@ -201,6 +211,7 @@ def create_sensor_window(request):
     session, error_response = get_or_create_session_for_sensor_data(
         protectee=protectee,
         mode=mode,
+        new_started_at=serializer.validated_data["started_at"],
     )
 
     if error_response:
@@ -227,7 +238,7 @@ def create_sensor_window(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    SensorWindow.objects.create(
+    window = SensorWindow.objects.create(
         session=session,
         sample_rate_hz=serializer.validated_data["sample_rate_hz"],
         duration_sec=serializer.validated_data["duration_sec"],
@@ -247,9 +258,19 @@ def create_sensor_window(request):
     else:
         required_window_count = 25
 
+    update_fields = ["window_count", "last_received_at"]
+    session.window_count = window_count
+    session.last_received_at = window.created_at
+
     if window_count >= required_window_count:
         session.ended_at = timezone.now()
-        session.save(update_fields=["ended_at"])
+        update_fields.append("ended_at")
+
+    session.save(update_fields=update_fields)
+
+    imu_result = None
+    if session.mode != MonitoringSession.Mode.CALIBRATION:
+        imu_result = run_imu_level_for_window(window)
 
     return Response(
         {
@@ -257,6 +278,7 @@ def create_sensor_window(request):
             "device_id": protectee.device_id,
             "received_window_count": window_count,
             "mode": mode_code,
+            "imu": imu_result,
         },
         status=status.HTTP_201_CREATED,
     )

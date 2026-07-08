@@ -53,10 +53,11 @@ function clearOverlays() {
 }
 
 // ── KST 시간 포맷 ─────────────────────────────────────
+// API가 반환하는 timestamp는 오프셋 없는 KST 벽시계 문자열이므로 Date 파싱 없이 그대로 표기한다.
 function fmtKstFull(iso) {
-  const kst = new Date(new Date(iso).getTime() + 9 * 3600 * 1000);
-  const p   = n => String(n).padStart(2, '0');
-  return `${p(kst.getUTCMonth()+1)}.${p(kst.getUTCDate())} ${p(kst.getUTCHours())}:${p(kst.getUTCMinutes())}:${p(kst.getUTCSeconds())}`;
+  const [datePart, timePart = ''] = iso.split('T');
+  const [, month, day] = datePart.split('-');
+  return `${month}.${day} ${timePart.slice(0, 8)}`;
 }
 
 // ── 현재 경로 GPS 점 (dot + hover 툴팁) ──────────────

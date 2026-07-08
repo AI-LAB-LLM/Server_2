@@ -844,7 +844,6 @@ class ApneaEngine:
                 updated = ApneaSession.objects.filter(pk=session_pk).update(
                     baseline_ready=True,
                     baseline_stats=baseline_stats,
-                    model_config=dict(cfg),
                 )
                 if updated == 1:
                     saved_ok = True

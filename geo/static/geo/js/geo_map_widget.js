@@ -1,37 +1,30 @@
 const DEFAULT_API_BASE = "/api/geo/track";
 const DEFAULT_POLL_MS = 5000;
 
+// API가 반환하는 timestamp는 오프셋 없는 KST 벽시계 문자열이므로 Date 파싱 없이 그대로 표기한다.
 function formatKst(isoString) {
-  const d = new Date(isoString);
-  const fmt = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Seoul",
-    year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", second: "2-digit",
-    hour12: false,
-  });
-  const parts = {};
-  fmt.formatToParts(d).forEach((p) => { parts[p.type] = p.value; });
-  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second} KST`;
+  if (!isoString) return "";
+  const [datePart, timePart = ""] = isoString.split("T");
+  return `${datePart} ${timePart.slice(0, 8)} KST`;
 }
 
-// datetime-local 입력값(KST 벽시계 기준 "YYYY-MM-DDTHH:mm")을 실제 UTC ISO 문자열로 변환
-function kstLocalInputToUtcIso(value) {
-  const utcMs = Date.parse(`${value}:00Z`) - 9 * 3600 * 1000;
-  return new Date(utcMs).toISOString();
+// datetime-local 입력값(KST 벽시계 기준 "YYYY-MM-DDTHH:mm")을 API가 기대하는 naive KST ISO 문자열로 변환
+function kstLocalInputToIso(value) {
+  return `${value}:00`;
 }
 
-// UTC 시각(Date)을 datetime-local 입력에 채울 KST 벽시계 문자열로 변환
+// 실제 현재 시각(Date)을 datetime-local 입력에 채울 KST 벽시계 문자열로 변환
 function toDatetimeLocalValue(date) {
   const kstMs = date.getTime() + 9 * 3600 * 1000;
   return new Date(kstMs).toISOString().slice(0, 16);
 }
 
-// 오늘 00:00(KST)에 해당하는 실제 UTC 인스턴트를 ISO 문자열로 반환
-function kstTodayStartUtcIso() {
+// 오늘 00:00(KST)에 해당하는 naive KST ISO 문자열을 반환 (API에 그대로 전달)
+function kstTodayStartIso() {
   const now = new Date();
   const kst = new Date(now.getTime() + 9 * 3600 * 1000);
   kst.setUTCHours(0, 0, 0, 0);
-  return new Date(kst.getTime() - 9 * 3600 * 1000).toISOString();
+  return kst.toISOString().slice(0, 19);
 }
 
 function createPointOverlay(kakao, map, point, isLatest) {
@@ -176,10 +169,10 @@ export function mountGeoMapWidget(container, deviceId, options = {}) {
     const params = new URLSearchParams({ device_id: deviceId });
 
     if (preset === "custom") {
-      if (startInput.value) params.set("start", kstLocalInputToUtcIso(startInput.value));
-      if (endInput.value) params.set("end", kstLocalInputToUtcIso(endInput.value));
+      if (startInput.value) params.set("start", kstLocalInputToIso(startInput.value));
+      if (endInput.value) params.set("end", kstLocalInputToIso(endInput.value));
     } else if (preset === "today") {
-      params.set("start", kstTodayStartUtcIso());
+      params.set("start", kstTodayStartIso());
     } else {
       params.set("window_minutes", preset);
     }

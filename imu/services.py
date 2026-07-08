@@ -1,4 +1,5 @@
 import traceback
+
 from analysis.models import Result
 
 RISK_DETECTED_MIN_LEVEL = 4
@@ -24,7 +25,7 @@ def save_imu_result(sensor_window, level):
         device_id=sensor_window.session.protectee.device_id,
         mode=sensor_window.session.mode,
         event_type=Result.EventType.IMU,
-        timestamp=int(sensor_window.started_at.timestamp() * 1000),
+        timestamp=sensor_window.started_at,
         probability=None,
         risk_level=level,
         risk_detected=level >= RISK_DETECTED_MIN_LEVEL,

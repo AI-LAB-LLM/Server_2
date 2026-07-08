@@ -1,6 +1,8 @@
-from datetime import datetime, timezone as dt_timezone
+from datetime import datetime, timedelta, timezone as dt_timezone
 from rest_framework import serializers
 from .models import MonitoringSession
+
+KST = dt_timezone(timedelta(hours=9))
 
 
 class MonitoringSessionSerializer(serializers.ModelSerializer):
@@ -90,8 +92,8 @@ class SensorWindowCreateSerializer(serializers.Serializer):
 
         attrs["started_at"] = datetime.fromtimestamp(
             timestamp / 1000,
-            tz=dt_timezone.utc,
-        )
+            tz=KST,
+        ).replace(tzinfo=None)
 
         expected_count = sample_rate_hz * duration_sec
 
