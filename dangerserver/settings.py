@@ -27,12 +27,12 @@ mimetypes.add_type("text/javascript", ".js", True)
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-jgi7ahi0n&gt*4&60ed#hewg$bb8-9+6rlv9qz&yp2jzr50)x&"
+SECRET_KEY = os.getenv("SECRET_KEY") 
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv("DEBUG", "False") == "True"
 
-ALLOWED_HOSTS = ["210.125.96.59", "localhost", "127.0.0.1"]
+ALLOWED_HOSTS = ["210.125.96.59", "localhost", "127.0.0.1"] 
 
 
 # Application definition
