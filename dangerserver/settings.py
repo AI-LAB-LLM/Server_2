@@ -147,8 +147,8 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": "전용 워치 기반 상시보고/주기보고 및 PPG/IMU 위험 탐지 API",
     "SERVERS": [
         # {"url": "http://127.0.0.1:8001", "description": "Local"},
-        {"url": "http://210.125.91.90:8001", "description": ""},
-        {"url": "https://3.35.146.211", "description": "Production"},
+        # {"url": "http://210.125.91.90:8001", "description": ""},
+        {"url": "https://3.35.146.211", "description": ""},
     ],
 }
 
