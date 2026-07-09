@@ -148,7 +148,7 @@ SPECTACULAR_SETTINGS = {
     "SERVERS": [
         # {"url": "http://127.0.0.1:8001", "description": "Local"},
         {"url": "http://210.125.91.90:8001", "description": ""},
-        # {"url": "https://<PROD_DOMAIN>", "description": "Production"},
+        {"url": "https://3.35.146.211", "description": "Production"},
     ],
 }
 
