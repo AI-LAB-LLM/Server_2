@@ -57,10 +57,9 @@ class SensorWindowAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "session",
+        "protectee_id",
         "get_device_id",
         "get_mode",
-        "sample_rate_hz",
-        "duration_sec",
         "started_at",
         "ended_at",
         "created_at",
@@ -73,8 +72,6 @@ class SensorWindowAdmin(admin.ModelAdmin):
 
     list_filter = (
         "session__mode",
-        "sample_rate_hz",
-        "duration_sec",
         "created_at",
     )
 

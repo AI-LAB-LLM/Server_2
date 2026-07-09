@@ -96,8 +96,12 @@ class SensorWindow(models.Model):
         related_name="sensor_windows",
     )
 
-    sample_rate_hz = models.PositiveIntegerField(default=25)
-    duration_sec = models.PositiveIntegerField(default=12)
+    protectee = models.ForeignKey(
+        Protectee,
+        on_delete=models.CASCADE,
+        related_name="sensor_windows",
+        help_text="session.protectee와 동일. 조회 편의를 위한 매핑 컬럼",
+    )
 
     started_at = models.DateTimeField()
     ended_at = models.DateTimeField(null=True, blank=True)
@@ -131,12 +135,17 @@ class SensorWindow(models.Model):
         ordering = ["-started_at"]
         indexes = [
             models.Index(fields=["session"]),
+            models.Index(fields=["protectee"]),
             models.Index(fields=["started_at"]),
         ]
 
+    WINDOW_DURATION_SEC = 12
+
     def save(self, *args, **kwargs):
+        if self.session_id and not self.protectee_id:
+            self.protectee_id = self.session.protectee_id
         if self.started_at and not self.ended_at:
-            self.ended_at = self.started_at + timedelta(seconds=self.duration_sec)
+            self.ended_at = self.started_at + timedelta(seconds=self.WINDOW_DURATION_SEC)
         super().save(*args, **kwargs)
 
     def __str__(self):

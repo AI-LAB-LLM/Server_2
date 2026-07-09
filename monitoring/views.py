@@ -240,8 +240,7 @@ def create_sensor_window(request):
 
     window = SensorWindow.objects.create(
         session=session,
-        sample_rate_hz=serializer.validated_data["sample_rate_hz"],
-        duration_sec=serializer.validated_data["duration_sec"],
+        protectee=protectee,
         started_at=serializer.validated_data["started_at"],
         x=serializer.validated_data["x"],
         y=serializer.validated_data["y"],
