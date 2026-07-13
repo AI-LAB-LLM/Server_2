@@ -1,6 +1,5 @@
 import os
 import math
-import joblib
 import numpy as np
 import pandas as pd
 
@@ -21,20 +20,28 @@ JUMP_SUSPECT_SPEED_KMPH = 80.0
 JUMP_ACTIVE_CLUSTER_RADIUS_M = 1500.0
 JUMP_RETURN_MAX_SPEED_KMPH = 80.0
 
+# prev-current-next 세 점 기준 방향 반전 spike 제거 기준
+REVERSE_SPIKE_MIN_ANGLE_DEG = 135.0
+REVERSE_SPIKE_MIN_SIDE_DIST_M = 800.0
+REVERSE_SPIKE_MAX_GAP_MIN = 15.0
+REVERSE_SPIKE_MAX_DIRECT_SPEED_KMPH = 80.0
+REVERSE_SPIKE_MIN_DETOUR_RATIO = 1.5
+REVERSE_SPIKE_MIN_LINEAR_ERROR_M = 700.0
+
+# 주변 5점 기준 single spike 제거 기준
+# 22:11처럼 특정 1개 점을 제거했을 때 앞뒤 흐름의 최대 속도가 크게 줄어드는 경우만 제거한다.
+CONTEXT_SPIKE_MIN_SIDE_DIST_M = 800.0
+CONTEXT_SPIKE_MAX_GAP_MIN = 15.0
+CONTEXT_SPIKE_MAX_BRIDGE_SPEED_KMPH = 80.0
+CONTEXT_SPIKE_MAX_AFTER_REMOVAL_SPEED_KMPH = 80.0
+CONTEXT_SPIKE_MIN_SPEED_DROP_KMPH = 10.0
+CONTEXT_SPIKE_MIN_DETOUR_RATIO = 1.3
+CONTEXT_SPIKE_MIN_LINEAR_ERROR_M = 700.0
+CONTEXT_SPIKE_LOCAL_RADIUS = 2
+
 STOPPAGE_THRESHOLD_SECONDS =20 * 60
 LOCATION_EPSILON_METERS = 60.0
 MOVE_SPEED_THRESHOLD_MPS = 0.5
-
-# MOVE 구간만 학습한 GPR을 쓰기 위한 런타임 기준
-# window 8개 중 이 개수 이상이 MOVE 성격이어야 GPR을 사용한다.
-# 너무 엄격하게 8로 두면 GPS 흔들림 때문에 GPR이 거의 안 돌 수 있어 기본 6으로 둔다.
-GPR_MIN_MOVE_POINTS_IN_WINDOW = 6
-
-GPR_MAX_UNCERTAINTY_M = None
-
-# gpr_fill_needed로 남은 row를 Predicted_*로 채울 때 허용할 최대 불확실성(m).
-# Predicted_confidence_level 기준 HIGH/MEDIUM(<=30m)까지만 최종 좌표로 사용한다.
-GPR_FILL_MAX_UNCERTAINTY_M = 30.0
 
 # =========================================================
 # 기본 유틸
@@ -118,19 +125,343 @@ def ensure_quality_columns(df: pd.DataFrame) -> pd.DataFrame:
 
     missing = df["Latitude"].isna() | df["longitude"].isna()
     df.loc[missing, GPS_QUALITY_COL] = "MISSING"
-    df.loc[missing, GPS_DECISION_COL] = "gpr_fill_needed"
+    df.loc[missing, GPS_DECISION_COL] = "linear_fill_needed"
     df.loc[missing, USE_RAW_FOR_GPR_COL] = False
     return df
 
 
 def mark_bad_for_gpr_input(df: pd.DataFrame, idx, method="jump_outlier") -> None:
-    # 원본 Raw_*는 보존하고, GPR 입력/최종 working 좌표만 NaN 처리
+    # 원본 Raw_*는 보존하고, 선형보간 대상 working 좌표만 NaN 처리
     df.loc[idx, GPS_QUALITY_COL] = "BAD"
-    df.loc[idx, GPS_DECISION_COL] = "gpr_fill_needed"
+    df.loc[idx, GPS_DECISION_COL] = "linear_fill_needed"
     df.loc[idx, USE_RAW_FOR_GPR_COL] = False
     df.loc[idx, INTERP_METHOD_COL] = method
     df.loc[idx, "Latitude"] = np.nan
     df.loc[idx, "longitude"] = np.nan
+
+
+def angle_diff_deg(a, b):
+    """
+    두 bearing 각도의 차이를 0~180도로 계산한다.
+    예: 10도와 350도 차이는 20도, 0도와 180도 차이는 180도.
+    """
+    return abs((float(a) - float(b) + 180.0) % 360.0 - 180.0)
+
+
+
+def _speed_kmph_between_rows(df: pd.DataFrame, idx_a, idx_b) -> float:
+    """
+    두 row 사이 평균 속도(km/h)를 계산한다.
+    좌표/시간이 없거나 시간 순서가 이상하면 NaN을 반환한다.
+    """
+    lat_a = df.loc[idx_a, "Latitude"]
+    lon_a = df.loc[idx_a, "longitude"]
+    lat_b = df.loc[idx_b, "Latitude"]
+    lon_b = df.loc[idx_b, "longitude"]
+    t_a = pd.to_datetime(df.loc[idx_a, "Timestamp"], errors="coerce")
+    t_b = pd.to_datetime(df.loc[idx_b, "Timestamp"], errors="coerce")
+
+    if any(pd.isna([lat_a, lon_a, lat_b, lon_b])) or pd.isna(t_a) or pd.isna(t_b):
+        return np.nan
+
+    dt_h = (t_b - t_a).total_seconds() / 3600.0
+    if dt_h <= 0:
+        return np.nan
+
+    dist_m = haversine_m(lat_a, lon_a, lat_b, lon_b)
+    return (dist_m / 1000.0) / dt_h
+
+
+def _max_adjacent_speed_kmph(df: pd.DataFrame, local_idxs) -> float:
+    """
+    local_idxs를 시간 순서대로 이어 봤을 때 인접 구간의 최대 속도(km/h)를 반환한다.
+    """
+    speeds = []
+    for a, b in zip(local_idxs, local_idxs[1:]):
+        s = _speed_kmph_between_rows(df, a, b)
+        if pd.notna(s):
+            speeds.append(float(s))
+
+    if not speeds:
+        return np.nan
+
+    return max(speeds)
+
+
+def detect_contextual_single_spike_outliers(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    주변 흐름을 보고 single spike를 잡는다.
+
+    중요:
+    - loop 안에서 바로 Latitude/longitude를 NaN으로 만들지 않는다.
+    - 먼저 원본 좌표 기준으로 후보를 전부 모은 뒤, 가장 강한 후보만 선택한다.
+    - 이렇게 해야 22:11을 제거한 뒤 그 영향으로 22:21 같은 정상점이 연쇄 제거되는 문제가 생기지 않는다.
+    """
+    df = df.copy().sort_values(["device_id", "Timestamp"]).reset_index(drop=True)
+    df = ensure_quality_columns(df)
+
+    if "is_contextual_spike_outlier" not in df.columns:
+        df["is_contextual_spike_outlier"] = False
+    if "is_jump_outlier" not in df.columns:
+        df["is_jump_outlier"] = False
+    if "contextual_spike_score" not in df.columns:
+        df["contextual_spike_score"] = np.nan
+
+    # 판단은 항상 원본 working 좌표 기준으로 한다.
+    # 후보 탐색 중간에 NaN 처리된 값이 다음 후보 판단에 영향을 주면 정상점까지 연쇄 제거된다.
+    base_df = df.copy()
+
+    for device_id, group in base_df.groupby("device_id", sort=True):
+        idxs = group.index.tolist()
+
+        if len(idxs) < 4:
+            continue
+
+        candidates = []
+
+        for k in range(1, len(idxs) - 1):
+            i_prev = idxs[k - 1]
+            i_curr = idxs[k]
+            i_next = idxs[k + 1]
+
+            lat_prev = base_df.loc[i_prev, "Latitude"]
+            lon_prev = base_df.loc[i_prev, "longitude"]
+            lat_curr = base_df.loc[i_curr, "Latitude"]
+            lon_curr = base_df.loc[i_curr, "longitude"]
+            lat_next = base_df.loc[i_next, "Latitude"]
+            lon_next = base_df.loc[i_next, "longitude"]
+
+            if any(pd.isna([lat_prev, lon_prev, lat_curr, lon_curr, lat_next, lon_next])):
+                continue
+
+            t_prev = pd.to_datetime(base_df.loc[i_prev, "Timestamp"], errors="coerce")
+            t_curr = pd.to_datetime(base_df.loc[i_curr, "Timestamp"], errors="coerce")
+            t_next = pd.to_datetime(base_df.loc[i_next, "Timestamp"], errors="coerce")
+
+            if pd.isna(t_prev) or pd.isna(t_curr) or pd.isna(t_next):
+                continue
+
+            gap1_min = (t_curr - t_prev).total_seconds() / 60.0
+            gap2_min = (t_next - t_curr).total_seconds() / 60.0
+            gap_total_min = (t_next - t_prev).total_seconds() / 60.0
+
+            if gap1_min <= 0 or gap2_min <= 0 or gap_total_min <= 0:
+                continue
+
+            if gap1_min > CONTEXT_SPIKE_MAX_GAP_MIN:
+                continue
+            if gap2_min > CONTEXT_SPIKE_MAX_GAP_MIN:
+                continue
+
+            dist_prev_curr = haversine_m(lat_prev, lon_prev, lat_curr, lon_curr)
+            dist_curr_next = haversine_m(lat_curr, lon_curr, lat_next, lon_next)
+            dist_prev_next = haversine_m(lat_prev, lon_prev, lat_next, lon_next)
+
+            # 작은 GPS 흔들림은 제외
+            if min(dist_prev_curr, dist_curr_next) < CONTEXT_SPIKE_MIN_SIDE_DIST_M:
+                continue
+
+            bridge_speed_kmph = (dist_prev_next / 1000.0) / (gap_total_min / 60.0)
+            if bridge_speed_kmph > CONTEXT_SPIKE_MAX_BRIDGE_SPEED_KMPH:
+                continue
+
+            detour_ratio = (dist_prev_curr + dist_curr_next) / max(dist_prev_next, 1.0)
+
+            alpha = (t_curr - t_prev).total_seconds() / (t_next - t_prev).total_seconds()
+            alpha = min(max(alpha, 0.0), 1.0)
+            expected_lat = float(lat_prev) + alpha * (float(lat_next) - float(lat_prev))
+            expected_lon = float(lon_prev) + alpha * (float(lon_next) - float(lon_prev))
+            linear_error_m = haversine_m(
+                expected_lat,
+                expected_lon,
+                lat_curr,
+                lon_curr,
+            )
+
+            if (
+                detour_ratio < CONTEXT_SPIKE_MIN_DETOUR_RATIO
+                and linear_error_m < CONTEXT_SPIKE_MIN_LINEAR_ERROR_M
+            ):
+                continue
+
+            # 주변 5점 기준으로 current 제거 전/후의 최대 속도를 비교한다.
+            # 단, base_df 기준으로만 계산한다. 이전 후보가 제거되었다고 가정하지 않는다.
+            local_start = max(0, k - CONTEXT_SPIKE_LOCAL_RADIUS)
+            local_end = min(len(idxs), k + CONTEXT_SPIKE_LOCAL_RADIUS + 1)
+            local_idxs_before = idxs[local_start:local_end]
+            local_idxs_after = [x for x in local_idxs_before if x != i_curr]
+
+            max_speed_before = _max_adjacent_speed_kmph(base_df, local_idxs_before)
+            max_speed_after = _max_adjacent_speed_kmph(base_df, local_idxs_after)
+
+            if pd.isna(max_speed_before) or pd.isna(max_speed_after):
+                continue
+
+            speed_drop = max_speed_before - max_speed_after
+
+            is_contextual_spike = (
+                max_speed_after <= CONTEXT_SPIKE_MAX_AFTER_REMOVAL_SPEED_KMPH
+                and speed_drop >= CONTEXT_SPIKE_MIN_SPEED_DROP_KMPH
+            )
+
+            if not is_contextual_spike:
+                continue
+
+            # 점수는 후보 충돌 시 더 확실한 spike를 고르기 위한 값이다.
+            # 속도 감소량, 선형 경로 이탈량, 우회율을 함께 반영한다.
+            score = (
+                float(speed_drop)
+                + float(linear_error_m) / 100.0
+                + max(float(detour_ratio) - 1.0, 0.0) * 20.0
+            )
+
+            candidates.append({
+                "idx": i_curr,
+                "pos": k,
+                "score": score,
+                "speed_drop": float(speed_drop),
+                "max_speed_before": float(max_speed_before),
+                "max_speed_after": float(max_speed_after),
+                "linear_error_m": float(linear_error_m),
+                "detour_ratio": float(detour_ratio),
+            })
+
+        # 후보가 겹쳐 있으면 가장 강한 후보만 남긴다.
+        # 예: 22:11이 실제 spike일 때, 그 주변 정상점 22:16/22:21이 연쇄로 제거되는 것을 막는다.
+        candidates.sort(key=lambda x: x["score"], reverse=True)
+        selected = []
+        selected_positions = []
+
+        for cand in candidates:
+            if any(abs(cand["pos"] - p) <= CONTEXT_SPIKE_LOCAL_RADIUS for p in selected_positions):
+                continue
+            selected.append(cand)
+            selected_positions.append(cand["pos"])
+
+        for cand in selected:
+            i_curr = cand["idx"]
+            mark_bad_for_gpr_input(df, i_curr, method="contextual_single_spike_outlier")
+            df.loc[i_curr, "is_contextual_spike_outlier"] = True
+            df.loc[i_curr, "is_jump_outlier"] = True
+            df.loc[i_curr, "contextual_spike_score"] = cand["score"]
+
+    return df
+
+def detect_reverse_spike_outliers(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    prev-current-next 세 점을 보고 current가 양옆 흐름과 반대 방향으로 튄 중간점이면 BAD 처리한다.
+
+    잡고 싶은 케이스:
+        A = 이전 정상점
+        B = 현재점
+        C = 다음 정상점
+
+        A -> B 방향과 B -> C 방향이 거의 반대이고,
+        A -> C로 바로 이어보면 속도가 말이 되며,
+        B가 A-C 흐름에서 크게 벗어난 경우 B를 outlier로 본다.
+
+    단순히 방향이 반대라고 제거하지 않고, 거리/시간/직선 오차/우회율을 같이 본다.
+    """
+    df = df.copy().sort_values(["device_id", "Timestamp"]).reset_index(drop=True)
+    df = ensure_quality_columns(df)
+
+    if "is_reverse_spike_outlier" not in df.columns:
+        df["is_reverse_spike_outlier"] = False
+    if "is_jump_outlier" not in df.columns:
+        df["is_jump_outlier"] = False
+
+    for device_id, group in df.groupby("device_id", sort=True):
+        idxs = group.index.tolist()
+
+        if len(idxs) < 3:
+            continue
+
+        for k in range(1, len(idxs) - 1):
+            i_prev = idxs[k - 1]
+            i_curr = idxs[k]
+            i_next = idxs[k + 1]
+
+            lat_prev = df.loc[i_prev, "Latitude"]
+            lon_prev = df.loc[i_prev, "longitude"]
+            lat_curr = df.loc[i_curr, "Latitude"]
+            lon_curr = df.loc[i_curr, "longitude"]
+            lat_next = df.loc[i_next, "Latitude"]
+            lon_next = df.loc[i_next, "longitude"]
+
+            if any(pd.isna([lat_prev, lon_prev, lat_curr, lon_curr, lat_next, lon_next])):
+                continue
+
+            t_prev = pd.to_datetime(df.loc[i_prev, "Timestamp"], errors="coerce")
+            t_curr = pd.to_datetime(df.loc[i_curr, "Timestamp"], errors="coerce")
+            t_next = pd.to_datetime(df.loc[i_next, "Timestamp"], errors="coerce")
+
+            if pd.isna(t_prev) or pd.isna(t_curr) or pd.isna(t_next):
+                continue
+
+            gap1_min = (t_curr - t_prev).total_seconds() / 60.0
+            gap2_min = (t_next - t_curr).total_seconds() / 60.0
+            gap_total_min = (t_next - t_prev).total_seconds() / 60.0
+
+            if gap1_min <= 0 or gap2_min <= 0 or gap_total_min <= 0:
+                continue
+
+            # 너무 긴 시간 간격은 실제 이동 가능성이 커서 reverse spike 판단에서 제외
+            if gap1_min > REVERSE_SPIKE_MAX_GAP_MIN:
+                continue
+            if gap2_min > REVERSE_SPIKE_MAX_GAP_MIN:
+                continue
+
+            dist_prev_curr = haversine_m(lat_prev, lon_prev, lat_curr, lon_curr)
+            dist_curr_next = haversine_m(lat_curr, lon_curr, lat_next, lon_next)
+            dist_prev_next = haversine_m(lat_prev, lon_prev, lat_next, lon_next)
+
+            # 작은 GPS 흔들림은 방향이 반대로 나와도 제거하지 않음
+            if min(dist_prev_curr, dist_curr_next) < REVERSE_SPIKE_MIN_SIDE_DIST_M:
+                continue
+
+            bearing_prev_curr = calculate_bearing(lat_prev, lon_prev, lat_curr, lon_curr)
+            bearing_curr_next = calculate_bearing(lat_curr, lon_curr, lat_next, lon_next)
+            reverse_angle = angle_diff_deg(bearing_prev_curr, bearing_curr_next)
+
+            # A->B와 B->C가 충분히 반대 방향이 아니면 제외
+            if reverse_angle < REVERSE_SPIKE_MIN_ANGLE_DEG:
+                continue
+
+            # A->C로 바로 이동했다고 보면 정상적인 속도인지 확인
+            direct_speed_kmph = (dist_prev_next / 1000.0) / (gap_total_min / 60.0)
+            if direct_speed_kmph > REVERSE_SPIKE_MAX_DIRECT_SPEED_KMPH:
+                continue
+
+            # B를 거쳐 가면 얼마나 비정상적으로 돌아가는지 확인
+            detour_ratio = (dist_prev_curr + dist_curr_next) / max(dist_prev_next, 1.0)
+
+            # B 시점에 A-C 선형 흐름상 있어야 할 위치와 실제 B의 거리
+            alpha = (t_curr - t_prev).total_seconds() / (t_next - t_prev).total_seconds()
+            alpha = min(max(alpha, 0.0), 1.0)
+
+            expected_lat = float(lat_prev) + alpha * (float(lat_next) - float(lat_prev))
+            expected_lon = float(lon_prev) + alpha * (float(lon_next) - float(lon_prev))
+
+            linear_error_m = haversine_m(
+                expected_lat,
+                expected_lon,
+                lat_curr,
+                lon_curr,
+            )
+
+            is_reverse_spike = (
+                detour_ratio >= REVERSE_SPIKE_MIN_DETOUR_RATIO
+                or linear_error_m >= REVERSE_SPIKE_MIN_LINEAR_ERROR_M
+            )
+
+            if not is_reverse_spike:
+                continue
+
+            mark_bad_for_gpr_input(df, i_curr, method="reverse_spike_outlier")
+            df.loc[i_curr, "is_reverse_spike_outlier"] = True
+            df.loc[i_curr, "is_jump_outlier"] = True
+
+    return df
 
 
 # =========================================================
@@ -320,11 +651,11 @@ def fill_missing_gps_linear_between_valid_points(
     max_gap_minutes: float = 60.0,
     max_gap_rows: int = 12,
     max_bridge_speed_kmph: float = 120.0,
-    decision_value: str = "linear_filled_gpr_fallback",
+    decision_value: str = "linear_filled_fallback",
     method_value: str = "linear_initial_or_short_window",
 ) -> pd.DataFrame:
     """
-    GPR로도 채우지 못한 NULL 결측을 마지막 fallback으로 선형보간
+    앞뒤 정상 좌표로 채울 수 있는 NULL 결측을 마지막 fallback으로 선형보간
     """
     df = df.copy().sort_values(["device_id", "Timestamp"]).reset_index(drop=True)
     df = ensure_quality_columns(df)
@@ -421,6 +752,55 @@ def fill_missing_gps_linear_between_valid_points(
 
     return df
 
+def restore_unfilled_rows_with_raw(
+    df: pd.DataFrame,
+    decision_value: str = "raw_restored_after_failed_fill",
+    method_suffix: str = "raw_fallback",
+) -> pd.DataFrame:
+    """
+    선형보간으로도 끝까지 채우지 못한 row는
+    Raw_Latitude / Raw_longitude를 최종 Latitude / longitude로 복구한다.
+
+    단, 이 값은 outlier로 의심된 raw를 다시 쓰는 것이므로
+    gps_quality는 LOW로 두고, use_raw_for_gpr는 False로 유지한다.
+    """
+    df = df.copy()
+    df = ensure_quality_columns(df)
+
+    if "is_raw_restored_fallback" not in df.columns:
+        df["is_raw_restored_fallback"] = False
+
+    need_restore = (
+        (
+            df["Latitude"].isna()
+            | df["longitude"].isna()
+            | df[GPS_DECISION_COL].astype(str).str.contains("fill_needed", na=False)
+        )
+        & df[RAW_LAT_COL].notna()
+        & df[RAW_LON_COL].notna()
+    )
+
+    df.loc[need_restore, "Latitude"] = df.loc[need_restore, RAW_LAT_COL]
+    df.loc[need_restore, "longitude"] = df.loc[need_restore, RAW_LON_COL]
+
+    df.loc[need_restore, GPS_QUALITY_COL] = "LOW"
+    df.loc[need_restore, GPS_DECISION_COL] = decision_value
+
+    # 최종 좌표로는 raw를 복구하지만,
+    # 이후 보정 입력에 신뢰 좌표로 쓰지는 않겠다는 의미
+    df.loc[need_restore, USE_RAW_FOR_GPR_COL] = False
+
+    old_method = df.loc[need_restore, INTERP_METHOD_COL].astype(str)
+
+    df.loc[need_restore, INTERP_METHOD_COL] = np.where(
+        old_method.str.strip().ne(""),
+        old_method + "|" + method_suffix,
+        method_suffix,
+    )
+
+    df.loc[need_restore, "is_raw_restored_fallback"] = True
+
+    return df
 
 # =========================================================
 # feature 생성
@@ -521,181 +901,8 @@ def recompute_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def build_gpr_feature_from_window(window_df: pd.DataFrame) -> np.ndarray:
-    feature_cols = [
-        "Latitude",
-        "longitude",
-        "relative_time",
-        "cumulative_distance_km",
-        "velocity_kmph",
-        "bearing",
-    ]
-    return window_df[feature_cols].values.flatten().reshape(1, -1)
-
-
 # =========================================================
-# GPR predict only
-# =========================================================
-def gpr_predict_only_for_move_windows(
-    df,
-    gpr_lat,
-    gpr_lon,
-    scaler_X,
-    scaler_y_lat,
-    scaler_y_lon,
-    window_size: int = WINDOW_SIZE,
-):
-    df = df.copy().sort_values(["device_id", "Timestamp"]).reset_index(drop=True)
-
-    # feature 및 STOP/MOVE 생성
-    df = recompute_features(df)
-    df = detect_stop_move_primary(df)
-
-    # 예측 결과 컬럼 생성
-    if "Predicted_Latitude" not in df.columns:
-        df["Predicted_Latitude"] = np.nan
-    if "Predicted_longitude" not in df.columns:
-        df["Predicted_longitude"] = np.nan
-    if "Predicted_uncertainty_m" not in df.columns:
-        df["Predicted_uncertainty_m"] = np.nan
-    if "Predicted_confidence_level" not in df.columns:
-        df["Predicted_confidence_level"] = ""
-    if "gpr_prediction_available" not in df.columns:
-        df["gpr_prediction_available"] = False
-
-    required = [
-        "Latitude",
-        "longitude",
-        "relative_time",
-        "cumulative_distance_km",
-        "velocity_kmph",
-        "bearing",
-    ]
-
-    for device_id, group in df.groupby("device_id", sort=True):
-        idxs = group.index.tolist()
-
-        for pos, idx in enumerate(idxs):
-
-            # 이전 8개 포인트가 있어야 현재 idx를 예측 가능
-            if pos < window_size:
-                continue
-
-            win_idxs = idxs[pos - window_size:pos]
-            win = df.loc[win_idxs]
-
-            # 장기 정지 상태 아닌 경우만 예측
-            if (
-                "stoppage_duration_at_point" in df.columns
-                and pd.notna(df.loc[idx, "stoppage_duration_at_point"])
-                and df.loc[idx, "stoppage_duration_at_point"] >= STOPPAGE_THRESHOLD_SECONDS
-            ):
-                continue
-
-            # GPR 입력 window에 NaN이 있으면 예측 불가
-            if win[required].isna().any().any():
-                continue
-
-            X = build_gpr_feature_from_window(win)
-            X_scaled = scaler_X.transform(X)
-
-            pred_lat_scaled, std_lat_scaled = gpr_lat.predict(
-                X_scaled,
-                return_std=True,
-            )
-            pred_lon_scaled, std_lon_scaled = gpr_lon.predict(
-                X_scaled,
-                return_std=True,
-            )
-
-            pred_lat = scaler_y_lat.inverse_transform(
-                pred_lat_scaled.reshape(-1, 1)
-            ).ravel()[0]
-
-            pred_lon = scaler_y_lon.inverse_transform(
-                pred_lon_scaled.reshape(-1, 1)
-            ).ravel()[0]
-
-            lat_std = std_lat_scaled[0] * scaler_y_lat.scale_[0]
-            lon_std = std_lon_scaled[0] * scaler_y_lon.scale_[0]
-
-            meter_per_deg_lat = 111000.0
-            meter_per_deg_lon = 111000.0 * math.cos(math.radians(pred_lat))
-
-            uncertainty_m = math.sqrt(
-                (lat_std * meter_per_deg_lat) ** 2
-                + (lon_std * meter_per_deg_lon) ** 2
-            )
-
-            df.loc[idx, "Predicted_Latitude"] = float(pred_lat)
-            df.loc[idx, "Predicted_longitude"] = float(pred_lon)
-            df.loc[idx, "Predicted_uncertainty_m"] = float(uncertainty_m)
-            df.loc[idx, "gpr_prediction_available"] = True
-
-            if uncertainty_m <= 15:
-                conf = "HIGH"
-            elif uncertainty_m <= 30:
-                conf = "MEDIUM"
-            else:
-                conf = "LOW"
-
-            df.loc[idx, "Predicted_confidence_level"] = conf
-
-    return df
-
-def apply_gpr_prediction_to_missing_rows(
-    df: pd.DataFrame,
-    max_uncertainty_m: float = GPR_FILL_MAX_UNCERTAINTY_M,
-) -> pd.DataFrame:
-    """
-    GPR 예측값이 있는 경우, raw가 missing/jump라서 Latitude/longitude가 비어 있는 row를
-    Predicted_Latitude / Predicted_longitude로 채운다.
-
-    정상 raw 좌표는 덮어쓰지 않는다.
-    Predicted_uncertainty_m이 max_uncertainty_m을 넘으면 채우지 않고
-    gpr_fill_needed 상태로 남겨둔다 (신뢰도가 너무 낮은 추정값 주입 방지).
-    """
-    df = df.copy()
-
-    required_cols = [
-        "Latitude",
-        "longitude",
-        "Predicted_Latitude",
-        "Predicted_longitude",
-        "Predicted_uncertainty_m",
-        "gpr_prediction_available",
-    ]
-
-    for col in required_cols:
-        if col not in df.columns:
-            return df
-
-    need_fill = (
-        (
-            df["Latitude"].isna()
-            | df["longitude"].isna()
-            | df[GPS_DECISION_COL].astype(str).str.contains("gpr_fill_needed", na=False)
-        )
-        & df["gpr_prediction_available"].eq(True)
-        & df["Predicted_Latitude"].notna()
-        & df["Predicted_longitude"].notna()
-        & df["Predicted_uncertainty_m"].notna()
-        & (df["Predicted_uncertainty_m"] <= max_uncertainty_m)
-    )
-
-    df.loc[need_fill, "Latitude"] = df.loc[need_fill, "Predicted_Latitude"]
-    df.loc[need_fill, "longitude"] = df.loc[need_fill, "Predicted_longitude"]
-
-    df.loc[need_fill, GPS_QUALITY_COL] = "LOW"
-    df.loc[need_fill, GPS_DECISION_COL] = "gpr_filled"
-    df.loc[need_fill, USE_RAW_FOR_GPR_COL] = False
-    df.loc[need_fill, INTERP_METHOD_COL] = "gpr"
-
-    return df
-
-
-# =========================================================
-# GPR autoregressive + 초기부족 구간 선형보간 fallback
+# 선형보간 전용 결측 보정
 # =========================================================
 def _is_valid_coord_row(df: pd.DataFrame, idx) -> bool:
     t = pd.to_datetime(df.loc[idx, "Timestamp"], errors="coerce")
@@ -792,69 +999,32 @@ def _linear_fill_single_between(
     return True
 
 
-def _window_move_count(win: pd.DataFrame) -> int:
-    """
-    MOVE-only로 학습한 GPR에 넣어도 되는 window인지 보기 위한 간단 기준.
-    state_primary가 있으면 그것을 우선 사용하고, 없으면 velocity_kmph 기준을 쓴다.
-    """
-    if "state_primary" in win.columns:
-        return int(win["state_primary"].astype(str).eq("MOVE").sum())
-
-    if "velocity_kmph" not in win.columns:
-        return 0
-
-    v = pd.to_numeric(win["velocity_kmph"], errors="coerce").fillna(0.0)
-    return int((v / 3.6 >= MOVE_SPEED_THRESHOLD_MPS).sum())
-
-
-def gpr_fill_missing_hybrid_autoregressive(
+def linear_fill_missing_autoregressive_replacement(
     df: pd.DataFrame,
-    gpr_lat,
-    gpr_lon,
-    scaler_X,
-    scaler_y_lat,
-    scaler_y_lon,
-    window_size: int = WINDOW_SIZE,
-    min_move_points: int = GPR_MIN_MOVE_POINTS_IN_WINDOW,
-    max_uncertainty_m = GPR_MAX_UNCERTAINTY_M,
     linear_max_gap_minutes: float = 60.0,
     linear_max_bridge_speed_kmph: float = 120.0,
 ) -> pd.DataFrame:
     """
-    결측 row를 순차적으로 채운다.
+    기존 autoregressive 보정 구간을 대체하는 선형보간 전용 결측 보정 함수.
 
-    우선순위:
-    1) 이전 window_size개 좌표가 모두 있고 MOVE context가 충분하면 GPR autoregressive
-    2) GPR을 못 쓰는 초기/짧은 window 구간이고 앞뒤 정상 좌표가 있으면 선형보간
-    3) 둘 다 안 되면 그대로 NaN 유지 → state_primary는 UNKNOWN
-
-    중요한 차이:
-    - GPR 예측이 성공하면 즉시 Latitude/longitude에 반영한다.
-    - 따라서 다음 결측 row는 직전 GPR 예측값을 window에 포함해 다시 예측할 수 있다.
+    처리 방식:
+    1) Latitude/longitude가 NaN이거나 *_fill_needed 상태인 row를 찾는다.
+    2) 같은 device_id 안에서 현재 row 앞/뒤의 정상 좌표를 찾는다.
+    3) 앞 정상점~뒤 정상점 사이를 Timestamp 비율(alpha)로 선형보간한다.
+    4) 보간된 좌표를 즉시 Latitude/longitude에 반영한다.
+       따라서 연속 결측 block도 앞에서부터 순차적으로 채워질 수 있다.
+    5) 앞/뒤 anchor가 없거나 gap/speed 조건을 넘으면 NaN으로 남기고,
+       이후 restore_unfilled_rows_with_raw()에서 raw fallback 여부를 결정한다.
     """
     df = df.copy().sort_values(["device_id", "Timestamp"]).reset_index(drop=True)
     df = ensure_quality_columns(df)
 
     for col, default in [
-        ("Predicted_Latitude", np.nan),
-        ("Predicted_longitude", np.nan),
-        ("Predicted_uncertainty_m", np.nan),
-        ("Predicted_confidence_level", ""),
-        ("gpr_prediction_available", False),
-        ("gpr_autoreg_attempted", False),
-        ("gpr_autoreg_skip_reason", ""),
+        ("linear_fill_attempted", False),
+        ("linear_fill_skip_reason", ""),
     ]:
         if col not in df.columns:
             df[col] = default
-
-    required = [
-        "Latitude",
-        "longitude",
-        "relative_time",
-        "cumulative_distance_km",
-        "velocity_kmph",
-        "bearing",
-    ]
 
     # 최초 feature/state 계산
     df = recompute_features(df)
@@ -864,105 +1034,17 @@ def gpr_fill_missing_hybrid_autoregressive(
         idxs = group.index.tolist()
 
         for pos, idx in enumerate(idxs):
+            decision = str(df.loc[idx, GPS_DECISION_COL])
             needs_fill = (
                 pd.isna(df.loc[idx, "Latitude"])
                 or pd.isna(df.loc[idx, "longitude"])
-                or str(df.loc[idx, GPS_DECISION_COL]).find("gpr_fill_needed") >= 0
+                or "fill_needed" in decision
             )
 
             if not needs_fill:
                 continue
 
-            df.loc[idx, "gpr_autoreg_attempted"] = True
-
-            can_gpr = True
-            skip_reason = ""
-
-            if pos < window_size:
-                can_gpr = False
-                skip_reason = "short_window"
-
-            if can_gpr:
-                win_idxs = idxs[pos - window_size:pos]
-                win = df.loc[win_idxs].copy()
-
-                if win[required].isna().any().any():
-                    can_gpr = False
-                    skip_reason = "window_has_nan"
-                else:
-                    move_count = _window_move_count(win)
-                    if move_count < min_move_points:
-                        can_gpr = False
-                        skip_reason = f"not_enough_move_context:{move_count}/{window_size}"
-
-            if can_gpr:
-                try:
-                    X = build_gpr_feature_from_window(win)
-                    X_scaled = scaler_X.transform(X)
-
-                    pred_lat_scaled, std_lat_scaled = gpr_lat.predict(
-                        X_scaled,
-                        return_std=True,
-                    )
-                    pred_lon_scaled, std_lon_scaled = gpr_lon.predict(
-                        X_scaled,
-                        return_std=True,
-                    )
-
-                    pred_lat = scaler_y_lat.inverse_transform(
-                        pred_lat_scaled.reshape(-1, 1)
-                    ).ravel()[0]
-                    pred_lon = scaler_y_lon.inverse_transform(
-                        pred_lon_scaled.reshape(-1, 1)
-                    ).ravel()[0]
-
-                    lat_std = std_lat_scaled[0] * scaler_y_lat.scale_[0]
-                    lon_std = std_lon_scaled[0] * scaler_y_lon.scale_[0]
-
-                    meter_per_deg_lat = 111000.0
-                    meter_per_deg_lon = 111000.0 * math.cos(math.radians(pred_lat))
-                    uncertainty_m = math.sqrt(
-                        (lat_std * meter_per_deg_lat) ** 2
-                        + (lon_std * meter_per_deg_lon) ** 2
-                    )
-
-                    if max_uncertainty_m is not None and uncertainty_m > max_uncertainty_m:
-                        can_gpr = False
-                        skip_reason = f"uncertainty_too_high:{uncertainty_m:.1f}m"
-                    else:
-                        df.loc[idx, "Predicted_Latitude"] = float(pred_lat)
-                        df.loc[idx, "Predicted_longitude"] = float(pred_lon)
-                        df.loc[idx, "Predicted_uncertainty_m"] = float(uncertainty_m)
-                        df.loc[idx, "gpr_prediction_available"] = True
-
-                        if uncertainty_m <= 15:
-                            conf = "HIGH"
-                        elif uncertainty_m <= 30:
-                            conf = "MEDIUM"
-                        else:
-                            conf = "LOW"
-                        df.loc[idx, "Predicted_confidence_level"] = conf
-
-                        # 핵심: 예측값을 즉시 working 좌표에 반영한다.
-                        df.loc[idx, "Latitude"] = float(pred_lat)
-                        df.loc[idx, "longitude"] = float(pred_lon)
-                        df.loc[idx, GPS_QUALITY_COL] = "LOW"
-                        df.loc[idx, GPS_DECISION_COL] = "gpr_autoregressive_filled"
-                        df.loc[idx, USE_RAW_FOR_GPR_COL] = False
-                        df.loc[idx, INTERP_METHOD_COL] = "gpr_autoregressive"
-                        df.loc[idx, "gpr_autoreg_skip_reason"] = ""
-
-                        # 다음 결측 row가 이 예측값을 window로 쓸 수 있게 feature/state 즉시 재계산
-                        df = recompute_features(df)
-                        df = detect_stop_move_primary(df)
-                        continue
-
-                except Exception as e:
-                    can_gpr = False
-                    skip_reason = f"gpr_error:{type(e).__name__}"
-
-            # GPR 불가: 초기 window 부족/STOP context/window NaN이면 앞뒤 정상점이 있을 때만 선형보간
-            df.loc[idx, "gpr_autoreg_skip_reason"] = skip_reason
+            df.loc[idx, "linear_fill_attempted"] = True
 
             prev_idx, next_idx = _find_prev_next_valid_coord(df, idxs, pos)
             filled_linear = _linear_fill_single_between(
@@ -972,19 +1054,49 @@ def gpr_fill_missing_hybrid_autoregressive(
                 next_idx=next_idx,
                 max_gap_minutes=linear_max_gap_minutes,
                 max_bridge_speed_kmph=linear_max_bridge_speed_kmph,
-                method="linear_initial_or_short_window",
+                method="linear_autoregressive_replacement",
             )
 
             if filled_linear:
-                # 다음 row에서 선형보간값을 window로 쓸 수 있게 즉시 재계산
+                df.loc[idx, GPS_DECISION_COL] = "linear_autoregressive_replacement_filled"
+                df.loc[idx, "linear_fill_skip_reason"] = ""
+
+                # 다음 결측 row가 방금 선형보간된 좌표를 앞 anchor로 쓸 수 있게 재계산
                 df = recompute_features(df)
                 df = detect_stop_move_primary(df)
             else:
-                if not skip_reason:
-                    skip_reason = "no_gpr_no_linear_anchor"
-                df.loc[idx, "gpr_autoreg_skip_reason"] = skip_reason
+                if prev_idx is None and next_idx is None:
+                    reason = "no_prev_next_valid_anchor"
+                elif prev_idx is None:
+                    reason = "no_prev_valid_anchor"
+                elif next_idx is None:
+                    reason = "no_next_valid_anchor"
+                else:
+                    reason = "linear_gap_or_speed_rejected"
+                df.loc[idx, "linear_fill_skip_reason"] = reason
 
     return df
+
+
+# 기존 함수명을 다른 파일에서 import하고 있을 수 있으므로 호환용 wrapper로 남긴다. 실제 내부 처리는 linear만 수행한다.
+def gpr_fill_missing_hybrid_autoregressive(
+    df: pd.DataFrame,
+    gpr_lat=None,
+    gpr_lon=None,
+    scaler_X=None,
+    scaler_y_lat=None,
+    scaler_y_lon=None,
+    window_size: int = WINDOW_SIZE,
+    min_move_points: int = 0,
+    max_uncertainty_m=None,
+    linear_max_gap_minutes: float = 60.0,
+    linear_max_bridge_speed_kmph: float = 120.0,
+) -> pd.DataFrame:
+    return linear_fill_missing_autoregressive_replacement(
+        df=df,
+        linear_max_gap_minutes=linear_max_gap_minutes,
+        linear_max_bridge_speed_kmph=linear_max_bridge_speed_kmph,
+    )
 
 
 # =========================================================
@@ -1018,44 +1130,21 @@ def detect_stop_move_primary(df: pd.DataFrame) -> pd.DataFrame:
 # Runtime class
 # =========================================================
 class GPRRuntime:
-    def __init__(self, model_dir: str, version: str, device_id: str):
+    def __init__(self, model_dir: str = "", version: str = "", device_id: str = ""):
+        """
+        모델 파일을 사용하지 않는 linear-only runtime.
+
+        기존 서버 코드가 GPRRuntime(model_dir, version, device_id) 형태로 호출할 수 있으므로
+        클래스명과 인자는 그대로 유지하지만, bundle은 로드하지 않는다.
+        """
         self.model_dir = model_dir
         self.version = version
         self.device_id = str(device_id)
-
-        safe_id = self.device_id.replace("/", "_").replace("\\", "_").replace(":", "_")
-
-        bundle_path = os.path.join(
-            model_dir,
-            f"gpr_bundle_{version}_device_{safe_id}.joblib"
-        )
-
-        if not os.path.exists(bundle_path):
-            raise FileNotFoundError(f"GPR bundle 파일이 없습니다: {bundle_path}")
-
-        self.bundle_path = bundle_path
-        self.bundle = joblib.load(bundle_path)
-
-        bundle_device_id = str(self.bundle.get("device_id"))
-        if bundle_device_id != self.device_id:
-            raise ValueError(
-                f"GPR bundle device_id 불일치: "
-                f"request={self.device_id}, bundle={bundle_device_id}"
-            )
-
-        main_gpr = self.bundle.get("main_gpr")
-        if main_gpr is None:
-            raise ValueError("bundle 안에 main_gpr가 없습니다.")
-
-        self.gpr_lat = main_gpr["gpr_lat"]
-        self.gpr_lon = main_gpr["gpr_lon"]
-        self.scaler_X = main_gpr["scaler_X"]
-        self.scaler_y_lat = main_gpr["scaler_y_lat"]
-        self.scaler_y_lon = main_gpr["scaler_y_lon"]
-
-        self.long_gap_gpr = self.bundle.get("long_gap_gpr")
-        self.anchor_zones = self.bundle.get("anchor_zones")
-        self.window_size = int(self.bundle.get("window_size", WINDOW_SIZE))
+        self.bundle_path = None
+        self.bundle = None
+        self.long_gap_gpr = None  # legacy attribute
+        self.anchor_zones = None
+        self.window_size = WINDOW_SIZE
 
     def preprocess_and_predict(self, recent_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -1069,26 +1158,27 @@ class GPRRuntime:
         df = normalize_input_columns(recent_df)
         df = ensure_quality_columns(df)
 
-        # 1. jump/outlier 좌표를 GPR 입력에서 제외
+        # 1. 주변 5점 기준으로 single spike를 먼저 제거
+        #    22:11처럼 특정 한 점을 제거했을 때 주변 흐름이 자연스러워지는 경우를 먼저 BAD 처리한다.
+        #    이 처리를 먼저 해야 22:06 같은 직전 정상점이 reverse spike로 오판되는 것을 줄일 수 있다.
+        df = detect_contextual_single_spike_outliers(df)
+
+        # 2. prev-current-next 기준 방향 반전 spike 제거
+        #    이미 contextual spike로 제거된 row가 있으면 해당 row는 NaN이므로 자동으로 건너뛴다.
+        df = detect_reverse_spike_outliers(df)
+
+        # 3. jump/outlier 좌표를 선형보간 대상으로 제외
         df = detect_and_tag_jump_outliers(df)
 
-        # 2. stale GPS는 가능한 경우 선형보간 교정
+        # 4. stale GPS는 가능한 경우 선형보간 교정
         df = detect_and_fix_stale_gps_linear(df)
 
-        # 3. feature 생성
+        # 5. feature 생성
         df = recompute_features(df)
 
-        # 4. gpr autogressive
-        df = gpr_fill_missing_hybrid_autoregressive(
+        # 6. 기존 autoregressive 보정 구간을 선형보간으로 대체
+        df = linear_fill_missing_autoregressive_replacement(
             df=df,
-            gpr_lat=self.gpr_lat,
-            gpr_lon=self.gpr_lon,
-            scaler_X=self.scaler_X,
-            scaler_y_lat=self.scaler_y_lat,
-            scaler_y_lon=self.scaler_y_lon,
-            window_size=self.window_size,
-            min_move_points=GPR_MIN_MOVE_POINTS_IN_WINDOW,
-            max_uncertainty_m=GPR_MAX_UNCERTAINTY_M,
             linear_max_gap_minutes=60.0,
             linear_max_bridge_speed_kmph=120.0,
         )
@@ -1106,27 +1196,27 @@ class GPRRuntime:
         df = recompute_features(df)
         df = detect_stop_move_primary(df)
 
-        # 7. window가 충분히 쌓인 모든 row에 대해 predicted_* 채움
-        #    (raw 좌표 정상 여부와 무관하게, 참고용 GPR 추정값)
-        df = gpr_predict_only_for_move_windows(
-            df=df,
-            gpr_lat=self.gpr_lat,
-            gpr_lon=self.gpr_lon,
-            scaler_X=self.scaler_X,
-            scaler_y_lat=self.scaler_y_lat,
-            scaler_y_lon=self.scaler_y_lon,
-            window_size=self.window_size,
-        )
+        # 7. 참고 예측 및 predicted_* 적용 단계 제거
+        #    이 버전은 최종 좌표 보정을 linear + raw fallback으로만 수행한다.
 
-        # 8. 여전히 gpr_fill_needed인 row 중, predicted_* 신뢰도가
-        #    충분히 높은 경우(<= GPR_FILL_MAX_UNCERTAINTY_M)에만 최종 좌표로 채움
-        df = apply_gpr_prediction_to_missing_rows(
+        # 8. 선형보간으로도 못 채운 row는 Raw 좌표를 최종 좌표로 복구
+        df = restore_unfilled_rows_with_raw(
             df,
-            max_uncertainty_m=GPR_FILL_MAX_UNCERTAINTY_M,
+            decision_value="raw_restored_after_failed_fill",
+            method_suffix="raw_fallback",
         )
 
-        # 9. 8단계에서 채워진 좌표를 반영해 feature/state 재계산
+        # 10. 최종 좌표 기준 feature/state 재계산
         df = recompute_features(df)
         df = detect_stop_move_primary(df)
+
+        # 10. 최종 출력용 컬럼명 정리
+        # 내부 계산용 longitude는 유지하고,
+        # 저장/출력용 Longitude 컬럼을 따로 만든다.
+        if "longitude" in df.columns:
+            df["Longitude"] = df["longitude"]
+
+        if RAW_LON_COL in df.columns:
+            df["Raw_Longitude"] = df[RAW_LON_COL]
 
         return df
