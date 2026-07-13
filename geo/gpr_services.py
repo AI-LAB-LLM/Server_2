@@ -91,24 +91,6 @@ def safe_value(value):
     return value
 
 
-def safe_device_id(device_id):
-    return str(device_id).replace("/", "_").replace("\\", "_").replace(":", "_")
-
-
-def get_gpr_bundle_path(device_id):
-    safe_id = safe_device_id(device_id)
-    return GEO_MODEL_DIR / f"gpr_bundle_{GPR_VERSION}_device_{safe_id}.joblib"
-
-#모델 파일 존재 확인
-def check_gpr_model_files(device_id):
-    bundle_path = get_gpr_bundle_path(device_id)
-
-    if not bundle_path.exists():
-        return [str(bundle_path)]
-
-    return []
-
-
 def build_recent_gps_dataframe(device_id, reference_time, minutes=60):
     """
     GeoProcessedData에서 특정 시점 기준 최근 60분 GPS 데이터를 조회해서
@@ -239,14 +221,6 @@ def run_gpr_and_update_latest(geo_obj):
         return {
             "gpr_status": "skipped",
             "reason": "recent_df_empty",
-        }
-
-    missing_files = check_gpr_model_files(geo_obj.device_id)
-    if missing_files:
-        return {
-            "gpr_status": "skipped",
-            "reason": "model_file_missing",
-            "missing_files": missing_files,
         }
 
     try:
