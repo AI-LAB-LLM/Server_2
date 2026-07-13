@@ -20,6 +20,8 @@ anomaly_runtime.py
 - 너무 짧은 MOVE block이 trip으로 생성되는 문제 방지
 - 5분 단위 데이터 기준, 첫 MOVE부터 다음 STOP/non-MOVE까지 30분 이상일 때만 trip 생성
 - 마지막이 MOVE로 끝나는 경우는 아직 이동 중이므로 trip 생성하지 않음
+- MOVE 사이의 10분 이하 STOP은 버스/지하철 대기로 보고 같은 이동 블록으로 연결
+- 지도/DB에는 실제 MOVE 블록 전체를 저장하고 DTW는 trim 구간만 사용
 """
 
 import math
@@ -214,6 +216,20 @@ def build_trip_sequence_dict(points_df: pd.DataFrame, apply_tolerance=True):
     seq_dict = {}
 
     for trip_id, group in df.groupby("trip_id", sort=False):
+        group = group.copy()
+
+        # 지도/DB에는 전체 이동 블록을 저장하되,
+        # DTW 계산에는 trim된 구간만 사용한다.
+        # baseline 데이터에는 dtw_include가 없으므로 기존 방식 그대로 처리된다.
+        if "dtw_include" in group.columns:
+            dtw_mask = (
+                pd.to_numeric(group["dtw_include"], errors="coerce")
+                .fillna(0)
+                .astype(int)
+                == 1
+            )
+            group = group[dtw_mask].copy()
+
         group = group.dropna(subset=["Latitude", "Longitude"]).copy()
 
         if len(group) < 2:
@@ -443,8 +459,8 @@ def attach_threshold_and_flag(
 
     return out
 
-
-def add_final_route_label_simple(
+## 고친 부분 
+def add_final_route_label_simple(   
     scored_df,
     unseen_margin_ratio=UNSEEN_MARGIN_RATIO,
 ):
@@ -586,6 +602,10 @@ def extract_strict_test_trips(
     # 서버에서 짧은 MOVE가 anomaly로 저장되는 문제 방지용
     MIN_MOVE_DURATION_MIN_LOCAL = 30.0
 
+    # MOVE 사이에 발생한 버스/지하철 대기 등을 같은 이동으로 연결할 최대 시간
+    # STOP 시작 시각부터 다음 MOVE 시각까지 10분 이하인 경우 연결한다.
+    MAX_TRANSFER_WAIT_MIN_LOCAL = 10.0
+
     def norm_state(value):
         return str(value).strip().upper()
 
@@ -594,6 +614,73 @@ def extract_strict_test_trips(
 
     def is_stop(value):
         return norm_state(value) == "STOP"
+
+    def connect_short_stop_between_moves(g):
+        """
+        MOVE - STOP - MOVE 구조에서 중간 STOP 구간을 확인한다.
+
+        STOP 시작 시각부터 다음 MOVE 시각까지의 시간이
+        MAX_TRANSFER_WAIT_MIN_LOCAL 이하이면 같은 이동 블록으로 연결한다.
+
+        원래 state_primary는 수정하지 않고, trip 추출용 trip_state만 변경한다.
+        is_transfer_wait=1은 이동 중 대기로 연결된 원래 STOP 지점을 의미한다.
+        """
+        out = g.copy().reset_index(drop=True)
+
+        out["trip_state"] = out["state_primary"].apply(norm_state)
+        out["is_transfer_wait"] = 0
+        out["transfer_wait_min"] = np.nan
+
+        n = len(out)
+        i = 0
+
+        while i < n:
+            if not is_stop(out.at[i, "trip_state"]):
+                i += 1
+                continue
+
+            stop_s = i
+
+            while i + 1 < n and is_stop(out.at[i + 1, "trip_state"]):
+                i += 1
+
+            stop_e = i
+            prev_idx = stop_s - 1
+            next_idx = stop_e + 1
+
+            # MOVE -> STOP -> MOVE 형태일 때만 중간 대기로 판단한다.
+            has_move_before = (
+                prev_idx >= 0
+                and is_move(out.at[prev_idx, "trip_state"])
+            )
+            has_move_after = (
+                next_idx < n
+                and is_move(out.at[next_idx, "trip_state"])
+            )
+
+            if has_move_before and has_move_after:
+                stop_start_time = pd.to_datetime(
+                    out.at[stop_s, "Timestamp"],
+                    errors="coerce",
+                )
+                next_move_time = pd.to_datetime(
+                    out.at[next_idx, "Timestamp"],
+                    errors="coerce",
+                )
+
+                if pd.notna(stop_start_time) and pd.notna(next_move_time):
+                    wait_min = (
+                        next_move_time - stop_start_time
+                    ).total_seconds() / 60.0
+
+                    if 0.0 <= wait_min <= MAX_TRANSFER_WAIT_MIN_LOCAL:
+                        out.loc[stop_s:stop_e, "trip_state"] = "MOVE"
+                        out.loc[stop_s:stop_e, "is_transfer_wait"] = 1
+                        out.loc[stop_s:stop_e, "transfer_wait_min"] = float(wait_min)
+
+            i += 1
+
+        return out
 
     # =====================================================
     # anchor DataFrame 정규화
@@ -799,8 +886,16 @@ def extract_strict_test_trips(
         return int(e - s + 1)
 
     def has_stop_before_after(g, s, e):
-        before_ok = s - 1 >= 0 and is_stop(g.iloc[s - 1]["state_primary"])
-        after_ok = e + 1 < len(g) and is_stop(g.iloc[e + 1]["state_primary"])
+        state_col = "trip_state" if "trip_state" in g.columns else "state_primary"
+
+        before_ok = (
+            s - 1 >= 0
+            and is_stop(g.iloc[s - 1][state_col])
+        )
+        after_ok = (
+            e + 1 < len(g)
+            and is_stop(g.iloc[e + 1][state_col])
+        )
 
         return bool(before_ok and after_ok)
 
@@ -813,7 +908,9 @@ def extract_strict_test_trips(
         if next_idx >= len(g):
             return None
 
-        if not is_move(g.iloc[next_idx]["state_primary"]):
+        state_col = "trip_state" if "trip_state" in g.columns else "state_primary"
+
+        if not is_move(g.iloc[next_idx][state_col]):
             return next_idx
 
         return None
@@ -880,7 +977,11 @@ def extract_strict_test_trips(
             for k in range(START_KEEP_MOVE_STEPS):
                 j = i + k
 
-                if j > block_e or not is_move(g.iloc[j]["state_primary"]):
+                state_col = (
+                    "trip_state" if "trip_state" in g.columns else "state_primary"
+                )
+
+                if j > block_e or not is_move(g.iloc[j][state_col]):
                     keep_move_ok = False
                     break
 
@@ -1011,7 +1112,11 @@ def extract_strict_test_trips(
         if anchors_norm.empty:
             continue
 
-        move_mask = g["state_primary"].apply(is_move)
+        # MOVE 사이의 10분 이하 STOP을 이동 중 대기로 연결한다.
+        # 원래 state_primary는 유지하고 trip_state만 MOVE로 바꾼다.
+        g = connect_short_stop_between_moves(g)
+
+        move_mask = g["trip_state"].apply(is_move)
         move_blocks = contiguous_blocks(move_mask)
 
         trip_seq = 1
@@ -1096,16 +1201,46 @@ def extract_strict_test_trips(
             trip_id = f"{device_id}_trip{trip_seq}"
             od_key = f"{device_id}_O{origin_anchor_id}_D{dest_anchor_id}"
 
-            t0 = pd.to_datetime(g.iloc[trim_s]["Timestamp"], errors="coerce")
-            t1 = pd.to_datetime(g.iloc[trim_e]["Timestamp"], errors="coerce")
+            # 지도/UI에서 사용할 실제 MOVE 블록 시간
+            raw_t0 = pd.to_datetime(
+                g.iloc[block_s]["Timestamp"],
+                errors="coerce",
+            )
+            raw_t1 = pd.to_datetime(
+                g.iloc[block_e]["Timestamp"],
+                errors="coerce",
+            )
+
+            # DTW 비교에 실제로 사용하는 trim 구간 시간
+            dtw_t0 = pd.to_datetime(
+                g.iloc[trim_s]["Timestamp"],
+                errors="coerce",
+            )
+            dtw_t1 = pd.to_datetime(
+                g.iloc[trim_e]["Timestamp"],
+                errors="coerce",
+            )
 
             duration_min = (
-                (t1 - t0).total_seconds() / 60.0
-                if pd.notna(t0) and pd.notna(t1)
+                (raw_t1 - raw_t0).total_seconds() / 60.0
+                if pd.notna(raw_t0) and pd.notna(raw_t1)
                 else np.nan
             )
 
-            sub = g.iloc[trim_s:trim_e + 1].copy().reset_index(drop=True)
+            dtw_duration_min = (
+                (dtw_t1 - dtw_t0).total_seconds() / 60.0
+                if pd.notna(dtw_t0) and pd.notna(dtw_t1)
+                else np.nan
+            )
+
+            # 지도/DB에는 원래 MOVE 블록 전체를 저장한다.
+            # DTW 계산에는 dtw_include=1인 trim 구간만 사용한다.
+            sub = g.iloc[block_s:block_e + 1].copy()
+            sub["dtw_include"] = (
+                (sub.index >= trim_s)
+                & (sub.index <= trim_e)
+            ).astype(int)
+            sub = sub.reset_index(drop=True)
 
             sub["trip_id"] = trip_id
             sub["trip_seq"] = trip_seq
@@ -1118,6 +1253,7 @@ def extract_strict_test_trips(
             sub["trip_type"] = "baseline_matched_trim"
             sub["move_duration_min"] = move_duration_min
             sub["min_move_duration_min"] = MIN_MOVE_DURATION_MIN_LOCAL
+            sub["max_transfer_wait_min"] = MAX_TRANSFER_WAIT_MIN_LOCAL
 
             trip_points.append(sub)
 
@@ -1144,10 +1280,21 @@ def extract_strict_test_trips(
                     "trim_net_m": trim_net_m,
                     "move_duration_min": move_duration_min,
                     "min_move_duration_min": MIN_MOVE_DURATION_MIN_LOCAL,
-                    "start_time": t0,
-                    "end_time": t1,
+                    "max_transfer_wait_min": MAX_TRANSFER_WAIT_MIN_LOCAL,
+
+                    # 기존 UI/DB의 start_time, end_time은 실제 MOVE 블록 기준
+                    "start_time": raw_t0,
+                    "end_time": raw_t1,
                     "duration_min": duration_min,
+
+                    # DTW 비교에 사용된 trim 구간은 별도 저장
+                    "dtw_start_time": dtw_t0,
+                    "dtw_end_time": dtw_t1,
+                    "dtw_duration_min": dtw_duration_min,
+
                     "n_points": len(sub),
+                    "dtw_n_points": int(sub["dtw_include"].sum()),
+                    "transfer_wait_points": int(sub["is_transfer_wait"].sum()),
                 }
             )
 
