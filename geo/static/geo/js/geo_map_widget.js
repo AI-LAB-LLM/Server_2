@@ -27,24 +27,13 @@ function kstTodayStartIso() {
   return kst.toISOString().slice(0, 19);
 }
 
-// point.is_corrected가 true면 최종 좌표가 raw GPS와 달라진 것(스파이크 제거/선형보간 등)이므로
-// 다른 색으로 표시하고 툴팁에 원본 좌표와 보정 사유를 같이 보여준다.
-function buildTooltipText(point) {
-  const lines = [formatKst(point.timestamp)];
-  if (point.is_corrected) {
-    lines.push(`보정됨 (${point.interp_method || point.gps_filter_decision || "unknown"})`);
-    lines.push(`원본: ${point.raw_latitude?.toFixed(6)}, ${point.raw_longitude?.toFixed(6)}`);
-  }
-  return lines.join("\n");
-}
-
 function createPointOverlay(kakao, map, point, isLatest) {
   const wrapper = document.createElement("div");
   wrapper.className = "geo-point";
 
   const tooltip = document.createElement("div");
   tooltip.className = "geo-tooltip" + (isLatest ? " is-visible" : "");
-  tooltip.textContent = buildTooltipText(point);
+  tooltip.textContent = formatKst(point.timestamp);
 
   const dot = document.createElement("div");
   dot.className = "geo-dot" + (isLatest ? " is-latest" : "") + (point.is_corrected ? " is-corrected" : "");
@@ -65,6 +54,49 @@ function createPointOverlay(kakao, map, point, isLatest) {
   });
   overlay.setMap(map);
   return overlay;
+}
+
+// point.is_corrected인 지점은 보정 전 raw 위치도 함께 보여준다 (연한 점 + 점선으로 최종 위치와 연결).
+function createRawPointOverlay(kakao, map, point) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "geo-point";
+
+  const tooltip = document.createElement("div");
+  tooltip.className = "geo-tooltip";
+  tooltip.textContent = `원본 GPS · ${formatKst(point.timestamp)}`;
+
+  const dot = document.createElement("div");
+  dot.className = "geo-dot geo-dot-raw";
+
+  dot.addEventListener("mouseenter", () => tooltip.classList.add("is-visible"));
+  dot.addEventListener("mouseleave", () => tooltip.classList.remove("is-visible"));
+
+  wrapper.appendChild(tooltip);
+  wrapper.appendChild(dot);
+
+  const overlay = new kakao.maps.CustomOverlay({
+    position: new kakao.maps.LatLng(point.raw_latitude, point.raw_longitude),
+    content: wrapper,
+    yAnchor: 1,
+    zIndex: 0,
+  });
+  overlay.setMap(map);
+  return overlay;
+}
+
+function createCorrectionLine(kakao, map, point) {
+  const line = new kakao.maps.Polyline({
+    path: [
+      new kakao.maps.LatLng(point.latitude, point.longitude),
+      new kakao.maps.LatLng(point.raw_latitude, point.raw_longitude),
+    ],
+    strokeWeight: 2,
+    strokeColor: "#f59e0b",
+    strokeOpacity: 0.85,
+    strokeStyle: "shortdash",
+  });
+  line.setMap(map);
+  return line;
 }
 
 
@@ -93,7 +125,6 @@ export function mountGeoMapWidget(container, deviceId, options = {}) {
       <span>(KST)</span>
       <button type="button" class="geo-apply-btn">적용</button>
     </span>
-    <span class="geo-legend"><span class="geo-legend-dot"></span>보정된 지점</span>
     <span class="geo-latest-badge">불러오는 중...</span>
   `;
 
@@ -167,6 +198,10 @@ export function mountGeoMapWidget(container, deviceId, options = {}) {
 
     points.forEach((p, idx) => {
       overlays.push(createPointOverlay(kakao, map, p, idx === points.length - 1));
+      if (p.is_corrected) {
+        overlays.push(createCorrectionLine(kakao, map, p));
+        overlays.push(createRawPointOverlay(kakao, map, p));
+      }
     });
 
     const bounds = new kakao.maps.LatLngBounds();

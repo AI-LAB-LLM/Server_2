@@ -48,23 +48,6 @@
   background: #1d4ed8;
 }
 
-.geo-legend {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  color: #6b7280;
-}
-
-.geo-legend-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #f59e0b;
-  border: 1px solid #fff;
-  box-shadow: 0 0 2px rgba(0, 0, 0, .3);
-}
-
 .geo-latest-badge {
   margin-left: auto;
   font-size: 12px;
@@ -156,6 +139,16 @@
   background: #f97316;
 }
 
+/* 보정 전 raw 위치 표시용 (속이 빈 점) */
+.geo-dot-raw {
+  width: 7px;
+  height: 7px;
+  background: #fff;
+  border: 2px solid #f59e0b;
+  box-shadow: 0 0 3px rgba(0, 0, 0, .3);
+  opacity: 0.9;
+}
+
 .geo-tooltip {
   position: absolute;
   bottom: 16px;
@@ -166,8 +159,7 @@
   font-size: 11px;
   padding: 4px 8px;
   border-radius: 6px;
-  white-space: pre-line;
-  text-align: center;
+  white-space: nowrap;
   display: none;
   pointer-events: none;
 }
