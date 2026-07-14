@@ -20,6 +20,18 @@ from .gpr_services import create_geo_processed_data_and_run_gpr
 
 KST = dt_timezone(timedelta(hours=9))
 
+# 이 오차 이내면 보정 좌표와 raw 좌표를 같은 값으로 취급한다 (부동소수점 오차 방지용).
+COORD_CORRECTED_EPSILON_DEG = 1e-9
+
+
+def _is_corrected_point(latitude, longitude, raw_latitude, raw_longitude):
+    if raw_latitude is None or raw_longitude is None:
+        return False
+    return (
+        abs(latitude - raw_latitude) > COORD_CORRECTED_EPSILON_DEG
+        or abs(longitude - raw_longitude) > COORD_CORRECTED_EPSILON_DEG
+    )
+
 _BASELINE_DIR = Path(settings.BASE_DIR) / "media" / "models" / "geo" / "baseline"
 
 
@@ -247,9 +259,17 @@ class GeoTrackDataView(APIView):
 
         rows = list(
             qs.order_by("timestamp").values(
-                "id", "timestamp", "latitude", "longitude", "gps_quality", "state_primary"
+                "id", "timestamp", "latitude", "longitude",
+                "raw_latitude", "raw_longitude",
+                "gps_quality", "gps_filter_decision", "interp_method", "state_primary",
             )[:limit]
         )
+
+        for row in rows:
+            row["is_corrected"] = _is_corrected_point(
+                row["latitude"], row["longitude"],
+                row["raw_latitude"], row["raw_longitude"],
+            )
 
         serializer = GeoTrackResponseSerializer(
             {"device_id": device_id, "count": len(rows), "points": rows}

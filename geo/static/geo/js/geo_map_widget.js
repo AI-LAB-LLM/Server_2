@@ -27,16 +27,27 @@ function kstTodayStartIso() {
   return kst.toISOString().slice(0, 19);
 }
 
+// point.is_corrected가 true면 최종 좌표가 raw GPS와 달라진 것(스파이크 제거/선형보간 등)이므로
+// 다른 색으로 표시하고 툴팁에 원본 좌표와 보정 사유를 같이 보여준다.
+function buildTooltipText(point) {
+  const lines = [formatKst(point.timestamp)];
+  if (point.is_corrected) {
+    lines.push(`보정됨 (${point.interp_method || point.gps_filter_decision || "unknown"})`);
+    lines.push(`원본: ${point.raw_latitude?.toFixed(6)}, ${point.raw_longitude?.toFixed(6)}`);
+  }
+  return lines.join("\n");
+}
+
 function createPointOverlay(kakao, map, point, isLatest) {
   const wrapper = document.createElement("div");
   wrapper.className = "geo-point";
 
   const tooltip = document.createElement("div");
   tooltip.className = "geo-tooltip" + (isLatest ? " is-visible" : "");
-  tooltip.textContent = formatKst(point.timestamp);
+  tooltip.textContent = buildTooltipText(point);
 
   const dot = document.createElement("div");
-  dot.className = "geo-dot" + (isLatest ? " is-latest" : "");
+  dot.className = "geo-dot" + (isLatest ? " is-latest" : "") + (point.is_corrected ? " is-corrected" : "");
 
   dot.addEventListener("mouseenter", () => tooltip.classList.add("is-visible"));
   dot.addEventListener("mouseleave", () => {
@@ -82,6 +93,7 @@ export function mountGeoMapWidget(container, deviceId, options = {}) {
       <span>(KST)</span>
       <button type="button" class="geo-apply-btn">적용</button>
     </span>
+    <span class="geo-legend"><span class="geo-legend-dot"></span>보정된 지점</span>
     <span class="geo-latest-badge">불러오는 중...</span>
   `;
 
