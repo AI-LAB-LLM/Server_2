@@ -7,12 +7,12 @@ from django.conf import settings
 from .models import GeoProcessedData
 from .gpr_runtime import GPRRuntime, haversine_m, MOVE_SPEED_THRESHOLD_MPS
 from .anomaly_services import run_anomaly_for_latest
+from .device_config import GEO_MODEL_DEVICE_ID, is_geo_model_supported_device
 
 
 # GPS 들어올 때마다 실행되는 보정 로직
 
 # GEO 모델 설정
-GEO_MODEL_DEVICE_ID = "212e15388f880450"
 GPR_VERSION = "0612"
 
 GEO_MODEL_DIR = (
@@ -275,9 +275,8 @@ def run_gpr_and_update_latest(geo_obj):
         API 응답에 넣을 수 있는 dict
     """
 
-    # 현재는 19395f6a434f4ca6 전용 모델만 있으므로,
-    # 다른 device_id에는 GPR 모델을 적용하지 않는다.
-    if geo_obj.device_id != GEO_MODEL_DEVICE_ID:
+    # 현재 GPR 모델은 GEO_MODEL_SUPPORTED_DEVICE_IDS에 속한 device_id에만 적용한다.
+    if not is_geo_model_supported_device(geo_obj.device_id):
         return save_raw_as_final_for_unsupported_device(geo_obj)
 
     recent_df = build_recent_gps_dataframe(
@@ -359,7 +358,7 @@ def create_geo_processed_data_and_run_gpr(
     latitude,
     longitude,
 ):
-    if str(device_id) != GEO_MODEL_DEVICE_ID:
+    if not is_geo_model_supported_device(device_id):
         return None, {"gpr_status": "skipped", "reason": "unsupported_device"}, {"anomaly_status": "skipped", "reason": "unsupported_device"}
 
     pos_success = latitude is not None and longitude is not None

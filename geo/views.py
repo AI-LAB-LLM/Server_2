@@ -17,6 +17,7 @@ from .serializers import (
     GeoTrackResponseSerializer,
 )
 from .gpr_services import create_geo_processed_data_and_run_gpr
+from .device_config import resolve_geo_model_device_id
 
 KST = dt_timezone(timedelta(hours=9))
 
@@ -332,7 +333,9 @@ class GeoTripMapView(APIView):
                 for r in rows
             ]
 
-        baseline_routes, anchors = _load_baseline_data(device_id, od_key)
+        baseline_routes, anchors = _load_baseline_data(
+            resolve_geo_model_device_id(device_id), od_key
+        )
 
         anomaly_data = None
         if anomaly_obj:
