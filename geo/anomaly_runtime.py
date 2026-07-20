@@ -870,35 +870,70 @@ def extract_strict_test_trips(
 
         return bool(before_ok and after_ok)
 
-    # =====================================================
-    # 서버용 완료 MOVE 확인
-    # =====================================================
-    def next_non_move_idx(g, block_e):
-        next_idx = block_e + 1
 
-        if next_idx >= len(g):
+    def confirmed_non_move_idx(g, block_e):
+        first_non_move_idx = block_e + 1
+
+        # MOVE 뒤에 데이터가 없으면 아직 이동 종료 여부를 알 수 없음
+        if first_non_move_idx >= len(g):
             return None
 
-        state_col = "trip_state" if "trip_state" in g.columns else "state_primary"
+        state_col = (
+            "trip_state"
+            if "trip_state" in g.columns
+            else "state_primary"
+        )
 
-        if not is_move(g.iloc[next_idx][state_col]):
-            return next_idx
+        # 정상적으로 MOVE 블록이 끝난 상태가 아니면 확정하지 않음
+        if is_move(g.iloc[first_non_move_idx][state_col]):
+            return None
 
-        return None
+        stop_start_time = pd.to_datetime(
+            g.iloc[first_non_move_idx]["Timestamp"],
+            errors="coerce",
+        )
+
+        # 현재까지 들어온 가장 최근 데이터 시각
+        latest_time = pd.to_datetime(
+            g["Timestamp"],
+            errors="coerce",
+        ).max()
+
+        if pd.isna(stop_start_time) or pd.isna(latest_time):
+            return None
+
+        observed_stop_min = (
+            latest_time - stop_start_time
+        ).total_seconds() / 60.0
+
+        # 10분 이하에는 다시 MOVE가 나올 가능성이 있으므로 아직 확정하지 않음
+        if observed_stop_min <= MAX_TRANSFER_WAIT_MIN_LOCAL:
+            return None
+
+        return first_non_move_idx
+
 
     def completed_move_duration_min(g, block_s, block_e):
-        end_context_idx = next_non_move_idx(g, block_e)
+        end_context_idx = confirmed_non_move_idx(g, block_e)
 
         if end_context_idx is None:
             return None
 
-        t0 = pd.to_datetime(g.iloc[block_s]["Timestamp"], errors="coerce")
-        t1 = pd.to_datetime(g.iloc[end_context_idx]["Timestamp"], errors="coerce")
+        t0 = pd.to_datetime(
+            g.iloc[block_s]["Timestamp"],
+            errors="coerce",
+        )
+        t1 = pd.to_datetime(
+            g.iloc[end_context_idx]["Timestamp"],
+            errors="coerce",
+        )
 
         if pd.isna(t0) or pd.isna(t1):
             return None
 
-        return float((t1 - t0).total_seconds() / 60.0)
+        return float(
+            (t1 - t0).total_seconds() / 60.0
+        )
 
     # =====================================================
     # baseline과 같은 origin/dest anchor 지정
