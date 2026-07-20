@@ -39,12 +39,6 @@ D0_M = 30.0
 T0_DEG = 15.0
 UNSEEN_MARGIN_RATIO = 1.35
 
-CONFIDENCE_TOLERANCE_MAP_M = {
-    "HIGH": 8.0,
-    "MEDIUM": 15.0,
-    "LOW": 25.0,
-}
-
 INTERP_TOLERANCE_MAP_M = {
     "stale_linear": 12.0,
     "linear_fallback": 18.0,
@@ -106,12 +100,6 @@ def compute_bearings(latlon):
         )
     out[0] = out[1]
     return out
-
-
-def confidence_to_tolerance(level):
-    if level is None or pd.isna(level):
-        return 0.0
-    return float(CONFIDENCE_TOLERANCE_MAP_M.get(str(level).strip().upper(), 0.0))
 
 
 # =========================================================
@@ -239,23 +227,6 @@ def build_trip_sequence_dict(points_df: pd.DataFrame, apply_tolerance=True):
         tol_m = np.zeros(len(group), dtype=float)
 
         if apply_tolerance:
-            if "Predicted_confidence_level" in group.columns:
-                conf_tol = (
-                    group["Predicted_confidence_level"]
-                    .apply(confidence_to_tolerance)
-                    .to_numpy(dtype=float)
-                )
-
-                if "Predicted_Latitude" in group.columns and "Predicted_longitude" in group.columns:
-                    has_pred = (
-                        group["Predicted_Latitude"].notna()
-                        & group["Predicted_longitude"].notna()
-                    ).to_numpy()
-                else:
-                    has_pred = np.zeros(len(group), dtype=bool)
-
-                tol_m[has_pred] = np.maximum(tol_m[has_pred], conf_tol[has_pred])
-
             if "interp_method" in group.columns:
                 methods = (
                     group["interp_method"]

@@ -38,10 +38,6 @@ class GeoProcessedDataAdmin(admin.ModelAdmin):
     search_fields = ("device_id", "protectee__name", "protectee__device_id")
     ordering = ("-timestamp",)
     readonly_fields = (
-        "predicted_latitude",
-        "predicted_longitude",
-        "predicted_uncertainty_m",
-        "predicted_confidence_level",
         "created_at",
         "updated_at",
     )

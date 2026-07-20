@@ -91,9 +91,9 @@ def safe_value(value):
     return value
 
 
-def build_recent_gps_dataframe(device_id, reference_time, minutes=20):
+def build_recent_gps_dataframe(device_id, reference_time, minutes=60):
     """
-    GeoProcessedData에서 특정 시점 기준 최근 20분 GPS 데이터를 조회해서
+    GeoProcessedData에서 특정 시점 기준 최근 60분 GPS 데이터를 조회해서
     GPRRuntime 입력 형식의 DataFrame으로 변환.
 
     gpr_runtime.py가 요구하는 주요 컬럼:
@@ -160,11 +160,6 @@ def save_raw_as_final_for_unsupported_device(geo_obj):
     geo_obj.use_raw_for_gpr = False
     geo_obj.interp_method = ""
 
-    geo_obj.predicted_latitude = None
-    geo_obj.predicted_longitude = None
-    geo_obj.predicted_uncertainty_m = None
-    geo_obj.predicted_confidence_level = None
-
     geo_obj.state_primary = None
 
     geo_obj.save()
@@ -184,10 +179,6 @@ def save_raw_as_final_for_unsupported_device(geo_obj):
         "gps_filter_decision": geo_obj.gps_filter_decision,
         "use_raw_for_gpr": geo_obj.use_raw_for_gpr,
         "interp_method": geo_obj.interp_method,
-        "predicted_latitude": geo_obj.predicted_latitude,
-        "predicted_longitude": geo_obj.predicted_longitude,
-        "predicted_uncertainty_m": geo_obj.predicted_uncertainty_m,
-        "predicted_confidence_level": geo_obj.predicted_confidence_level,
         "state_primary": geo_obj.state_primary,
     }
 
@@ -207,7 +198,7 @@ def _coords_close(a, b):
 
 def reverify_past_rows_in_window(processed_df, exclude_id):
     """
-    같은 20분 윈도우로 새로 계산된 processed_df에는 방금 들어온 row 덕분에
+    같은 60분 윈도우로 새로 계산된 processed_df에는 방금 들어온 row 덕분에
     처음으로 '다음 점'까지 확보한 과거 row들의 재계산 결과가 들어있다.
 
     실시간 처리는 원래 각 row의 timestamp 이전 데이터만 보고 그 자리에서 확정하기
@@ -215,10 +206,6 @@ def reverify_past_rows_in_window(processed_df, exclude_id):
     없어 raw_used로 남을 수 있다. 이후 다음 GPS가 들어와 같은 윈도우를 다시 계산할
     때는 그 과거 row도 다음 점을 갖게 되므로, 이 함수가 그 결과를 다시 확인해서
     DB에 저장된 값과 다르면 갱신한다.
-
-    단, 창이 앞으로 밀리면서 보간에 쓰였던 prev/next anchor가 윈도우 밖으로
-    빠져 재계산이 실패(NaN)하는 경우가 있다. 이때 이미 채워져 있던 좌표를
-    NULL로 되돌리면 안 되므로, "값 있음 -> 값 없음"으로의 회귀는 갱신에서 제외한다.
 
     가장 최근 row(exclude_id)는 run_gpr_and_update_latest에서 이미 처리하므로 제외한다.
     """
@@ -249,11 +236,6 @@ def reverify_past_rows_in_window(processed_df, exclude_id):
         new_interp_method = safe_value(row.get("interp_method"))
         new_state_primary = safe_value(row.get("state_primary"))
 
-        already_filled = existing.latitude is not None and existing.longitude is not None
-        newly_missing = new_lat is None or new_lon is None
-        if already_filled and newly_missing:
-            continue
-
         changed = (
             new_decision != existing.gps_filter_decision
             or not _coords_close(new_lat, existing.latitude)
@@ -283,7 +265,7 @@ def reverify_past_rows_in_window(processed_df, exclude_id):
 
 def run_gpr_and_update_latest(geo_obj):
     """
-    방금 저장된 GeoProcessedData row를 기준으로 최근 20분 데이터를 조회하고,
+    방금 저장된 GeoProcessedData row를 기준으로 최근 60분 데이터를 조회하고,
     GPRRuntime을 실행한 뒤, 가장 마지막 행 결과를 geo_obj에 업데이트한다.
 
     geo_obj:
@@ -301,7 +283,7 @@ def run_gpr_and_update_latest(geo_obj):
     recent_df = build_recent_gps_dataframe(
         device_id=geo_obj.device_id,
         reference_time=geo_obj.timestamp,
-        minutes=20,
+        minutes=60,
     )
 
     if recent_df.empty:
@@ -334,20 +316,11 @@ def run_gpr_and_update_latest(geo_obj):
         geo_obj.use_raw_for_gpr = safe_value(latest.get("use_raw_for_gpr"))
         geo_obj.interp_method = safe_value(latest.get("interp_method"))
 
-        geo_obj.predicted_latitude = safe_value(latest.get("Predicted_Latitude"))
-        geo_obj.predicted_longitude = safe_value(latest.get("Predicted_longitude"))
-        geo_obj.predicted_uncertainty_m = safe_value(
-            latest.get("Predicted_uncertainty_m")
-        )
-        geo_obj.predicted_confidence_level = safe_value(
-            latest.get("Predicted_confidence_level")
-        )
-
         geo_obj.state_primary = safe_value(latest.get("state_primary"))
 
         geo_obj.save()
 
-        # 방금 계산한 20분 윈도우 안에는 과거 row들도 이번에 처음으로
+        # 방금 계산한 60분 윈도우 안에는 과거 row들도 이번에 처음으로
         # '다음 점'을 확보한 상태로 재계산되어 있으므로, 결과가 달라졌으면
         # DB에 반영한다 (단일 스파이크가 뒤늦게 잡히는 경우 등).
         reverified_ids = reverify_past_rows_in_window(
@@ -363,10 +336,6 @@ def run_gpr_and_update_latest(geo_obj):
             "gps_filter_decision": geo_obj.gps_filter_decision,
             "use_raw_for_gpr": geo_obj.use_raw_for_gpr,
             "interp_method": geo_obj.interp_method,
-            "predicted_latitude": geo_obj.predicted_latitude,
-            "predicted_longitude": geo_obj.predicted_longitude,
-            "predicted_uncertainty_m": geo_obj.predicted_uncertainty_m,
-            "predicted_confidence_level": geo_obj.predicted_confidence_level,
             "state_primary": geo_obj.state_primary,
             "reverified_geo_processed_ids": reverified_ids,
         }

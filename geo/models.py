@@ -52,11 +52,6 @@ class GeoProcessedData(models.Model):
     use_raw_for_gpr = models.BooleanField(null=True, blank=True)
     interp_method = models.CharField(max_length=100, null=True, blank=True)
 
-    predicted_latitude = models.FloatField(null=True, blank=True)
-    predicted_longitude = models.FloatField(null=True, blank=True)
-    predicted_uncertainty_m = models.FloatField(null=True, blank=True)
-    predicted_confidence_level = models.CharField(max_length=50, null=True, blank=True)
-
     state_primary = models.CharField(max_length=50, null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)

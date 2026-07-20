@@ -126,9 +126,6 @@ def build_processed_gps_dataframe_for_anomaly(
             "timestamp",
             "latitude",
             "longitude",
-            "predicted_latitude",
-            "predicted_longitude",
-            "predicted_confidence_level",
             "interp_method",
             "state_primary",
         )
@@ -146,11 +143,6 @@ def build_processed_gps_dataframe_for_anomaly(
                 "Latitude": row["latitude"],
                 "longitude": row["longitude"],
                 "Longitude": row["longitude"],
-
-                # GPR 예측/보정 관련 tolerance 계산용
-                "Predicted_Latitude": row["predicted_latitude"],
-                "Predicted_longitude": row["predicted_longitude"],
-                "Predicted_confidence_level": row["predicted_confidence_level"],
                 "interp_method": row["interp_method"],
 
                 # trip 생성에 필요
