@@ -13,14 +13,17 @@ from django.db import transaction
 
 from .models import GeoProcessedData, GeoTripAnomalyResult
 from .anomaly_runtime import AnomalyRuntime
+from .device_config import (
+    GEO_MODEL_DEVICE_ID,
+    is_geo_model_supported_device,
+    resolve_geo_model_device_id,
+)
 
 
 # =========================
 # Anomaly 모델 설정
 # =========================
 
-# 현재 anomaly 모델도 특정 device_id 전용
-GEO_MODEL_DEVICE_ID = "212e15388f880450"
 ANOMALY_VERSION = "0615"
 
 GEO_MODEL_DIR = (
@@ -81,7 +84,7 @@ def is_supported_anomaly_device(device_id):
     """
     현재 anomaly 모델이 지원하는 device_id인지 확인.
     """
-    return str(device_id) == GEO_MODEL_DEVICE_ID
+    return is_geo_model_supported_device(device_id)
 
 
 # =========================
@@ -108,7 +111,13 @@ def build_processed_gps_dataframe_for_anomaly(
     주의:
     - raw_latitude / raw_longitude가 아니라
       GPR 보정 후 저장된 latitude / longitude를 넣어야 함.
+    - baseline/anchor 데이터는 canonical device_id(GEO_MODEL_DEVICE_ID) 기준으로
+      만들어져 있으므로, GEO_MODEL_SUPPORTED_DEVICE_IDS에 속한 device_id는
+      여기서 canonical device_id로 치환해서 넣는다 (trip_id/od_key도 그 기준으로 계산됨).
+      실제 device_id는 geo_obj.device_id로 별도 저장되므로 결과 매칭에는 영향 없음.
     """
+
+    model_device_id = resolve_geo_model_device_id(device_id)
 
     start_time = reference_time - timedelta(minutes=minutes)
 
@@ -136,7 +145,7 @@ def build_processed_gps_dataframe_for_anomaly(
     for row in qs:
         rows.append(
             {
-                "device_id": row["device_id"],
+                "device_id": model_device_id,
                 "Timestamp": row["timestamp"],
 
                 # anomaly_runtime.py 내부에서 Latitude / Longitude 사용
