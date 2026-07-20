@@ -1150,7 +1150,7 @@ class GPRRuntime:
         """
         recent_df:
             서버 DB에서 조회한 최근 데이터.
-            5분 간격 기준 최근 60분 조회 권장.
+            5분 간격 기준 최근 20분 조회 권장.
 
         return:
             보정된 Latitude / longitude와 state_primary가 포함된 DataFrame.
@@ -1179,13 +1179,13 @@ class GPRRuntime:
         # 6. 기존 autoregressive 보정 구간을 선형보간으로 대체
         df = linear_fill_missing_autoregressive_replacement(
             df=df,
-            linear_max_gap_minutes=60.0,
+            linear_max_gap_minutes=20.0,
             linear_max_bridge_speed_kmph=120.0,
         )
 
         df = fill_missing_gps_linear_between_valid_points(
             df,
-            max_gap_minutes=60.0,
+            max_gap_minutes=20.0,
             max_gap_rows=12,
             max_bridge_speed_kmph=120.0,
             decision_value="linear_filled_final_fallback",
