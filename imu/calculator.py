@@ -13,6 +13,7 @@ except ImportError:
         from tensorflow.lite.python.interpreter import Interpreter
 
 
+
 MODEL_DIR = Path(settings.BASE_DIR) / "media" / "models" / "imu"
 
 MODEL_PATH = MODEL_DIR / "model_classification.tflite"
@@ -54,6 +55,14 @@ SHAKE_MEAN_MAX = TH_ACTIVITY + 0.8
 P3_STRONG_MIN = 0.60
 JERK_RATIO_TH = 1.30
 
+GRAVITY = 9.80665
+
+
+def convert_g_to_mps2(samples: List[List[float]]) -> List[List[float]]:
+    arr = np.array(samples, dtype=np.float32)
+    return (arr * GRAVITY).tolist()
+
+
 
 class ImuState:
     def __init__(self):
@@ -65,7 +74,9 @@ class ImuState:
         self.state23 = 2
 
 
+
 _STATE_BY_PROTECTEE: Dict[int, ImuState] = {}
+
 
 
 def get_state(protectee_id: int) -> ImuState:
@@ -74,11 +85,13 @@ def get_state(protectee_id: int) -> ImuState:
     return _STATE_BY_PROTECTEE[protectee_id]
 
 
+
 _interpreter = None
 _input_details = None
 _output_details = None
 _mu4 = None
 _sigma4 = None
+
 
 
 def load_scaler() -> Tuple[np.ndarray, np.ndarray]:
@@ -108,6 +121,7 @@ def load_scaler() -> Tuple[np.ndarray, np.ndarray]:
     return _mu4, _sigma4
 
 
+
 def load_interpreter():
     global _interpreter, _input_details, _output_details
 
@@ -127,6 +141,7 @@ def load_interpreter():
     return _interpreter, _input_details, _output_details
 
 
+
 # 수학 유틸
 def softmax(logits: np.ndarray) -> np.ndarray:
     logits = logits.astype(np.float32)
@@ -140,6 +155,7 @@ def softmax(logits: np.ndarray) -> np.ndarray:
     return exps / total
 
 
+
 def mean_of_deque(q: deque) -> np.ndarray:
     if not q:
         return np.array([], dtype=np.float32)
@@ -147,8 +163,10 @@ def mean_of_deque(q: deque) -> np.ndarray:
     return np.mean(np.stack(list(q), axis=0), axis=0).astype(np.float32)
 
 
+
 def median3(a: int, b: int, c: int) -> int:
     return sorted([a, b, c])[1]
+
 
 
 def extract_features(samples: List[List[float]]) -> np.ndarray:
@@ -186,6 +204,7 @@ def extract_features(samples: List[List[float]]) -> np.ndarray:
     return np.array([x1, x2, x3, x4], dtype=np.float32)
 
 
+
 def predict_probs(raw4: np.ndarray) -> np.ndarray:
     mu4, sigma4 = load_scaler()
     interpreter, input_details, output_details = load_interpreter()
@@ -207,6 +226,7 @@ def predict_probs(raw4: np.ndarray) -> np.ndarray:
         return out
 
     return softmax(out)
+
 
 
 def calculate_grade_from_probs(
@@ -324,6 +344,7 @@ def calculate_grade_from_probs(
     return int(max(1, min(5, grade)))
 
 
+
 def calculate_imu_level(protectee_id: int, samples: List[List[float]]) -> dict:
     """
     외부에서 호출할 메인 함수.
@@ -340,6 +361,8 @@ def calculate_imu_level(protectee_id: int, samples: List[List[float]]) -> dict:
         "probs": [...]
     }
     """
+    samples = convert_g_to_mps2(samples)
+
     raw4 = extract_features(samples)
     probs = predict_probs(raw4)
     level = calculate_grade_from_probs(protectee_id, raw4, probs)
