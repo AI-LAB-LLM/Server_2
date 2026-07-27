@@ -649,7 +649,7 @@ def detect_and_fix_stale_gps_linear(
 def fill_missing_gps_linear_between_valid_points(
     df: pd.DataFrame,
     max_gap_minutes: float = 60.0,
-    max_gap_rows: int = 12,
+    max_gap_rows: int = 19,
     max_bridge_speed_kmph: float = 120.0,
     decision_value: str = "linear_filled_fallback",
     method_value: str = "linear_initial_or_short_window",
@@ -1186,7 +1186,7 @@ class GPRRuntime:
         df = fill_missing_gps_linear_between_valid_points(
             df,
             max_gap_minutes=20.0,
-            max_gap_rows=12,
+            max_gap_rows=19,
             max_bridge_speed_kmph=120.0,
             decision_value="linear_filled_final_fallback",
             method_value="linear_final_fallback",
