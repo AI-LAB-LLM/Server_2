@@ -7,12 +7,12 @@ from django.conf import settings
 from .models import GeoProcessedData
 from .gpr_runtime import GPRRuntime, haversine_m, MOVE_SPEED_THRESHOLD_MPS
 from .anomaly_services import run_anomaly_for_latest
+from .device_config import GEO_MODEL_DEVICE_ID, is_geo_model_supported_device
 
 
 # GPS 들어올 때마다 실행되는 보정 로직
 
 # GEO 모델 설정
-GEO_MODEL_DEVICE_ID = "212e15388f880450"
 GPR_VERSION = "0612"
 
 GEO_MODEL_DIR = (
@@ -119,6 +119,7 @@ def build_recent_gps_dataframe(device_id, reference_time, minutes=60):
         )
         .order_by("timestamp")
         .values(
+            "id",
             "device_id",
             "timestamp",
             "raw_latitude",
@@ -130,6 +131,7 @@ def build_recent_gps_dataframe(device_id, reference_time, minutes=60):
     for row in qs:
         rows.append(
             {
+                "id": row["id"],
                 "device_id": row["device_id"],
                 "Timestamp": row["timestamp"],
                 "Latitude": row["raw_latitude"],
@@ -158,11 +160,6 @@ def save_raw_as_final_for_unsupported_device(geo_obj):
     geo_obj.use_raw_for_gpr = False
     geo_obj.interp_method = ""
 
-    geo_obj.predicted_latitude = None
-    geo_obj.predicted_longitude = None
-    geo_obj.predicted_uncertainty_m = None
-    geo_obj.predicted_confidence_level = None
-
     geo_obj.state_primary = None
 
     geo_obj.save()
@@ -182,12 +179,84 @@ def save_raw_as_final_for_unsupported_device(geo_obj):
         "gps_filter_decision": geo_obj.gps_filter_decision,
         "use_raw_for_gpr": geo_obj.use_raw_for_gpr,
         "interp_method": geo_obj.interp_method,
-        "predicted_latitude": geo_obj.predicted_latitude,
-        "predicted_longitude": geo_obj.predicted_longitude,
-        "predicted_uncertainty_m": geo_obj.predicted_uncertainty_m,
-        "predicted_confidence_level": geo_obj.predicted_confidence_level,
         "state_primary": geo_obj.state_primary,
     }
+
+
+# =========================
+# 과거 row 재검증
+# =========================
+
+COORD_CLOSE_EPSILON_DEG = 1e-9
+
+
+def _coords_close(a, b):
+    if a is None or b is None:
+        return a is None and b is None
+    return abs(float(a) - float(b)) <= COORD_CLOSE_EPSILON_DEG
+
+
+def reverify_past_rows_in_window(processed_df, exclude_id):
+    """
+    같은 60분 윈도우로 새로 계산된 processed_df에는 방금 들어온 row 덕분에
+    처음으로 '다음 점'까지 확보한 과거 row들의 재계산 결과가 들어있다.
+
+    실시간 처리는 원래 각 row의 timestamp 이전 데이터만 보고 그 자리에서 확정하기
+    때문에, 마지막에 튄 단일 지점(contextual/reverse spike)은 그 시점엔 다음 점이
+    없어 raw_used로 남을 수 있다. 이후 다음 GPS가 들어와 같은 윈도우를 다시 계산할
+    때는 그 과거 row도 다음 점을 갖게 되므로, 이 함수가 그 결과를 다시 확인해서
+    DB에 저장된 값과 다르면 갱신한다.
+
+    가장 최근 row(exclude_id)는 run_gpr_and_update_latest에서 이미 처리하므로 제외한다.
+    """
+    if "id" not in processed_df.columns:
+        return []
+
+    updated_ids = []
+
+    for _, row in processed_df.iterrows():
+        row_id = row.get("id")
+        if row_id is None or pd.isna(row_id):
+            continue
+
+        row_id = int(row_id)
+        if row_id == exclude_id:
+            continue
+
+        try:
+            existing = GeoProcessedData.objects.get(id=row_id)
+        except GeoProcessedData.DoesNotExist:
+            continue
+
+        new_lat = safe_value(row.get("Latitude"))
+        new_lon = safe_value(row.get("longitude"))
+        new_decision = safe_value(row.get("gps_filter_decision"))
+        new_quality = safe_value(row.get("gps_quality"))
+        new_use_raw = safe_value(row.get("use_raw_for_gpr"))
+        new_interp_method = safe_value(row.get("interp_method"))
+        new_state_primary = safe_value(row.get("state_primary"))
+
+        changed = (
+            new_decision != existing.gps_filter_decision
+            or not _coords_close(new_lat, existing.latitude)
+            or not _coords_close(new_lon, existing.longitude)
+        )
+
+        if not changed:
+            continue
+
+        existing.latitude = new_lat
+        existing.longitude = new_lon
+        existing.gps_quality = new_quality
+        existing.gps_filter_decision = new_decision
+        existing.use_raw_for_gpr = new_use_raw
+        existing.interp_method = new_interp_method
+        existing.state_primary = new_state_primary
+        existing.save()
+
+        updated_ids.append(row_id)
+
+    return updated_ids
 
 
 # =========================
@@ -206,9 +275,8 @@ def run_gpr_and_update_latest(geo_obj):
         API 응답에 넣을 수 있는 dict
     """
 
-    # 현재는 19395f6a434f4ca6 전용 모델만 있으므로,
-    # 다른 device_id에는 GPR 모델을 적용하지 않는다.
-    if geo_obj.device_id != GEO_MODEL_DEVICE_ID:
+    # 현재 GPR 모델은 GEO_MODEL_SUPPORTED_DEVICE_IDS에 속한 device_id에만 적용한다.
+    if not is_geo_model_supported_device(geo_obj.device_id):
         return save_raw_as_final_for_unsupported_device(geo_obj)
 
     recent_df = build_recent_gps_dataframe(
@@ -247,18 +315,16 @@ def run_gpr_and_update_latest(geo_obj):
         geo_obj.use_raw_for_gpr = safe_value(latest.get("use_raw_for_gpr"))
         geo_obj.interp_method = safe_value(latest.get("interp_method"))
 
-        geo_obj.predicted_latitude = safe_value(latest.get("Predicted_Latitude"))
-        geo_obj.predicted_longitude = safe_value(latest.get("Predicted_longitude"))
-        geo_obj.predicted_uncertainty_m = safe_value(
-            latest.get("Predicted_uncertainty_m")
-        )
-        geo_obj.predicted_confidence_level = safe_value(
-            latest.get("Predicted_confidence_level")
-        )
-
         geo_obj.state_primary = safe_value(latest.get("state_primary"))
 
         geo_obj.save()
+
+        # 방금 계산한 60분 윈도우 안에는 과거 row들도 이번에 처음으로
+        # '다음 점'을 확보한 상태로 재계산되어 있으므로, 결과가 달라졌으면
+        # DB에 반영한다 (단일 스파이크가 뒤늦게 잡히는 경우 등).
+        reverified_ids = reverify_past_rows_in_window(
+            processed_df, exclude_id=geo_obj.id
+        )
 
         return {
             "gpr_status": "ok",
@@ -269,11 +335,8 @@ def run_gpr_and_update_latest(geo_obj):
             "gps_filter_decision": geo_obj.gps_filter_decision,
             "use_raw_for_gpr": geo_obj.use_raw_for_gpr,
             "interp_method": geo_obj.interp_method,
-            "predicted_latitude": geo_obj.predicted_latitude,
-            "predicted_longitude": geo_obj.predicted_longitude,
-            "predicted_uncertainty_m": geo_obj.predicted_uncertainty_m,
-            "predicted_confidence_level": geo_obj.predicted_confidence_level,
             "state_primary": geo_obj.state_primary,
+            "reverified_geo_processed_ids": reverified_ids,
         }
 
     except Exception as e:
@@ -295,7 +358,7 @@ def create_geo_processed_data_and_run_gpr(
     latitude,
     longitude,
 ):
-    if str(device_id) != GEO_MODEL_DEVICE_ID:
+    if not is_geo_model_supported_device(device_id):
         return None, {"gpr_status": "skipped", "reason": "unsupported_device"}, {"anomaly_status": "skipped", "reason": "unsupported_device"}
 
     pos_success = latitude is not None and longitude is not None

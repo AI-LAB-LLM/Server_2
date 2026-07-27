@@ -85,6 +85,7 @@ export function appendIrFromItems(items) {
 
         // time_sec가 이전보다 작아지면 새 세션으로 판단하고 기존 그래프 제거
         if (IRBUF.length > 0 && x < IRBUF[IRBUF.length - 1].x) {
+          console.warn('[IRBUF] 리셋! 이전 x:', IRBUF[IRBUF.length - 1].x, '새 x:', x);
           IRBUF.length = 0;
           IRBUF_BASE_TS = null;  // ← 리셋 시 기준 시각도 초기화
 

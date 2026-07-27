@@ -36,7 +36,7 @@ function createPointOverlay(kakao, map, point, isLatest) {
   tooltip.textContent = formatKst(point.timestamp);
 
   const dot = document.createElement("div");
-  dot.className = "geo-dot" + (isLatest ? " is-latest" : "");
+  dot.className = "geo-dot" + (isLatest ? " is-latest" : "") + (point.is_corrected ? " is-corrected" : "");
 
   dot.addEventListener("mouseenter", () => tooltip.classList.add("is-visible"));
   dot.addEventListener("mouseleave", () => {
@@ -54,6 +54,49 @@ function createPointOverlay(kakao, map, point, isLatest) {
   });
   overlay.setMap(map);
   return overlay;
+}
+
+// point.is_corrected인 지점은 보정 전 raw 위치도 함께 보여준다 (연한 점 + 점선으로 최종 위치와 연결).
+function createRawPointOverlay(kakao, map, point) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "geo-point";
+
+  const tooltip = document.createElement("div");
+  tooltip.className = "geo-tooltip";
+  tooltip.textContent = `원본 GPS · ${formatKst(point.timestamp)}`;
+
+  const dot = document.createElement("div");
+  dot.className = "geo-dot geo-dot-raw";
+
+  dot.addEventListener("mouseenter", () => tooltip.classList.add("is-visible"));
+  dot.addEventListener("mouseleave", () => tooltip.classList.remove("is-visible"));
+
+  wrapper.appendChild(tooltip);
+  wrapper.appendChild(dot);
+
+  const overlay = new kakao.maps.CustomOverlay({
+    position: new kakao.maps.LatLng(point.raw_latitude, point.raw_longitude),
+    content: wrapper,
+    yAnchor: 1,
+    zIndex: 0,
+  });
+  overlay.setMap(map);
+  return overlay;
+}
+
+function createCorrectionLine(kakao, map, point) {
+  const line = new kakao.maps.Polyline({
+    path: [
+      new kakao.maps.LatLng(point.latitude, point.longitude),
+      new kakao.maps.LatLng(point.raw_latitude, point.raw_longitude),
+    ],
+    strokeWeight: 2,
+    strokeColor: "#f59e0b",
+    strokeOpacity: 0.85,
+    strokeStyle: "shortdash",
+  });
+  line.setMap(map);
+  return line;
 }
 
 
@@ -155,6 +198,10 @@ export function mountGeoMapWidget(container, deviceId, options = {}) {
 
     points.forEach((p, idx) => {
       overlays.push(createPointOverlay(kakao, map, p, idx === points.length - 1));
+      if (p.is_corrected) {
+        overlays.push(createCorrectionLine(kakao, map, p));
+        overlays.push(createRawPointOverlay(kakao, map, p));
+      }
     });
 
     const bounds = new kakao.maps.LatLngBounds();

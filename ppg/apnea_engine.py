@@ -880,6 +880,7 @@ class ApneaEngine:
             self._detectors[device_id] = detector
             self._extractors[device_id] = new_ext
             self._baseline_done[device_id] = True
+            self._baseline_active[device_id] = False
 
         logger.info(
             f"[ApneaEngine] baseline done: {device_id} "

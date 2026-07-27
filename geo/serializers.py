@@ -64,7 +64,12 @@ class GeoTrackPointSerializer(serializers.Serializer):
     timestamp = serializers.DateTimeField()
     latitude = serializers.FloatField()
     longitude = serializers.FloatField()
+    raw_latitude = serializers.FloatField(allow_null=True)
+    raw_longitude = serializers.FloatField(allow_null=True)
+    is_corrected = serializers.BooleanField()
     gps_quality = serializers.CharField(allow_null=True)
+    gps_filter_decision = serializers.CharField(allow_null=True)
+    interp_method = serializers.CharField(allow_null=True)
     state_primary = serializers.CharField(allow_null=True)
 
 
