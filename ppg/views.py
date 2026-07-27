@@ -48,6 +48,8 @@ class ApneaRecordsView(View):
                 "sensor_window_id": sw.pk,
                 "device_id":        r.device_id,
                 "timestamp":        sw.started_at.isoformat(),
+                "ended_at":         sw.ended_at.isoformat() if sw.ended_at else None,
+                "created_at":       sw.created_at.isoformat(),
                 "is_baseline":      r.is_baseline,
                 "beat_results":     r.beat_results or [],
                 "predictions": {
@@ -109,6 +111,8 @@ class DeviceDashboardView(View):
                 "sensor_window_id": sw.pk,
                 "device_id":        r.device_id,
                 "timestamp":        sw.started_at.isoformat(),
+                "ended_at":         sw.ended_at.isoformat() if sw.ended_at else None,
+                "created_at":       sw.created_at.isoformat(),
                 "is_baseline":      r.is_baseline,
                 "beat_results":     r.beat_results or [],
                 "predictions": {

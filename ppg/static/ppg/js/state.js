@@ -16,6 +16,8 @@ let IRBUF_SEQ = 0;
 let IRBUF_MAX_ID = Number.NEGATIVE_INFINITY;
 let IRBUF_LAST_TS = null;
 let IRBUF_LAST_SIG = null;
+let IRBUF_BASE_TS = null;  // ← 추가: 첫 번째 포인트의 started_at 기준 시각
+
 
 const toNum = v => {
   const n = Number(v);
@@ -42,6 +44,7 @@ export function latestItem() {
 
 
 export function getIrbufPoints() { return IRBUF.slice(); }
+export function getIrbufBaseTs() { return IRBUF_BASE_TS; }  // ← 추가
 
 export function resetIrbuf() {
   IRBUF = [];
@@ -49,6 +52,8 @@ export function resetIrbuf() {
   IRBUF_MAX_ID = Number.NEGATIVE_INFINITY;
   IRBUF_LAST_TS = null;
   IRBUF_LAST_SIG = null;
+  IRBUF_BASE_TS = null;  // ← 추가
+
 }
 
 export function appendIrFromItems(items) {
@@ -70,6 +75,8 @@ export function appendIrFromItems(items) {
         const prob    = beat?.p_apnea_smooth;
         const valid   = beat?.status === 'ok';
         const label   = beat?.pred_label;
+        const absTs   = beat?.abs_ts ?? null;  // ← abs_ts 사용
+
 
         if (timeSec == null) continue;
 
@@ -80,13 +87,20 @@ export function appendIrFromItems(items) {
         if (IRBUF.length > 0 && x < IRBUF[IRBUF.length - 1].x) {
           console.warn('[IRBUF] 리셋! 이전 x:', IRBUF[IRBUF.length - 1].x, '새 x:', x);
           IRBUF.length = 0;
+          IRBUF_BASE_TS = null;  // ← 리셋 시 기준 시각도 초기화
+
+        }
+
+        if (IRBUF_BASE_TS === null && r?.timestamp) {
+          IRBUF_BASE_TS = new Date(r.timestamp).getTime();
         }
 
         IRBUF.push({
           x,
           y: (prob != null && Number.isFinite(Number(prob))) ? Number(prob) : null,
           valid,
-          ts: r?.timestamp ?? null,
+          ts: absTs,  // ← abs_ts 직접 사용
+          // ts: r?.timestamp ?? null,
           thr: null,
           label,
           wear_valid: r?.predictions?.WEAR_GREEN?.valid,

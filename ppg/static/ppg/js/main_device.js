@@ -50,13 +50,18 @@ function updateDelay(items) {
   const delayEl = document.getElementById('delayText');
   if (!delayEl || !items.length) return;
 
-  const last     = items[items.length - 1];
-  const windowTs = last?.timestamp;
-  if (!windowTs) { delayEl.textContent = '-'; return; }
+  const last      = items[items.length - 1];
+  const endedAt   = last?.ended_at;
+  const createdAt = last?.created_at;
 
-  const diff = (Date.now() - new Date(windowTs).getTime()) / 1000;
+  if (!endedAt || !createdAt) {
+    delayEl.textContent = '-';
+    return;
+  }
+
+  const diff = (new Date(createdAt).getTime() - new Date(endedAt).getTime()) / 1000;
   delayEl.textContent = `데이터 지연: ${diff.toFixed(1)}초`;
-  delayEl.style.color = diff > 30 ? '#ef4444' : diff > 15 ? '#f97316' : '#10b981';
+  delayEl.style.color = diff > 10 ? '#ef4444' : diff > 2 ? '#f97316' : '#10b981';
 }
 
 // ── 메인 폴링 ────────────────────────────────

@@ -1,6 +1,8 @@
 import logging
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+import datetime
+
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +44,20 @@ def handle_sensor_window(sender, instance, created, **kwargs):
 
         else:
             return  # PERIODIC 등 무시
+
+        # ── abs_ts 계산 ────────────────────────────────
+        # t0 = 엔진이 기억하는 첫 번째 패킷 시각
+        # time_sec = sp_sample / 25 (서버 시작 이후 누적 초)
+        # abs_ts = t0 + time_sec
+        beat_results = result.get("beat_results") or []
+        t0 = engine._t0.get(device_id)
+
+        if beat_results and t0:
+            for beat in beat_results:
+                time_sec = beat.get("time_sec", 0)
+                abs_dt   = t0 + datetime.timedelta(seconds=time_sec)
+                beat["abs_ts"] = abs_dt.isoformat()
+
 
         wear = result.get("wear", {})
         ApneaResult.objects.update_or_create(
