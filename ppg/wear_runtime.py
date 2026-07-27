@@ -51,8 +51,10 @@ def analyze_ppg_chunk(ppg_values: List[float]) -> Dict[str, Any]:
             data_raw, [0.5, 8], sample_rate=SAMPLE_RATE, order=3, filtertype='bandpass'
         )
 
-        amp = float(np.ptp(filtered))
-        std = float(np.std(filtered))
+        # amp/std 판정은 THRESHOLD_LOW/HIGH가 캘리브레이션된 스케일과 맞도록
+        # 대역통과 필터 이전(data_raw) 신호 기준으로 계산한다.
+        amp = float(np.ptp(data_raw))
+        std = float(np.std(data_raw))
         access_log.info(f"[WEAR_DBG] len={len(filtered)} amp={amp:.2f} std={std:.2f}")
 
         # HeartPy 처리
@@ -80,12 +82,12 @@ def analyze_ppg_chunk(ppg_values: List[float]) -> Dict[str, Any]:
             else:
                 return {"result": "invalid"}
 
-        chunk_len = len(filtered)
+        chunk_len = len(data_raw)
         subchunk_len = chunk_len // SUBCHUNK_COUNT
         votes = []
 
         for i in range(SUBCHUNK_COUNT):
-            sub = filtered[i * subchunk_len : (i + 1) * subchunk_len]
+            sub = data_raw[i * subchunk_len : (i + 1) * subchunk_len]
             amp_sub = np.ptp(sub)
             std_sub = np.std(sub)
             state = "wear" if (THRESHOLD_LOW <= amp_sub <= THRESHOLD_HIGH) else "non_wear"
