@@ -1,7 +1,7 @@
 // apnea/static/apnea/js/charts.js
 // 기존 ppg/static/js/charts.js와 동일. 타이틀만 Apnea 전용으로 변경.
 
-import { charts, safelyGet, latestItem, getIrbufPoints } from './state.js';
+import { charts, safelyGet, latestItem, getIrbufPoints  } from './state.js';
 
 const WINDOW_SEC = 240;
 const APNEA_THR_CONST = 0.5;  // 기본 임계값 (모델 config에서 덮어씀)
@@ -100,7 +100,14 @@ export function renderIrHolding() {
           const t  = thrBase.toFixed(2);
           const v  = (pt?.valid === true) ? 'ok' : 'baseline/warming-up';
           const lb = (pt?.label != null) ? Number(pt.label) : '-';
-          return `<b>${x?.toFixed(1)}s</b><br>p(apnea)=${p} / thr=${t} / label=${lb} / ${v}`;
+          // const baseTs = getIrbufBaseTs();
+          // const ts     = (baseTs && x != null)
+          //   ? new Date(baseTs + x * 1000).toLocaleTimeString('ko-KR')
+          //   : '-';
+          const ts = pt?.ts
+            ? new Date(pt.ts).toLocaleTimeString('ko-KR')
+            : '-';
+          return `<b>${ts}</b><br>p(apnea)=${p} / thr=${t} / label=${lb} / ${v}`;
         }
       },
       legend: { verticalAlign: 'bottom' }

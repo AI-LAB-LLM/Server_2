@@ -675,6 +675,7 @@ class ApneaEngine:
         self._packet_count: Dict[str, int] = {}
         self._baseline_active: Dict[str, bool] = {}
         self._session_pk: Dict[str, int] = {}
+        self._t0: Dict[str, object] = {}  # ← 추가: device_id별 첫 샘플 절대 시각
 
     @classmethod
     def get_instance(cls):
@@ -729,6 +730,8 @@ class ApneaEngine:
             self._baseline_active[device_id] = True
             self._packet_count[device_id] = 0
             self._session_pk[device_id] = session_pk
+            self._t0.pop(device_id, None)  # ← 추가: 세션 시작 시 t0 초기화
+
 
             self._extractors[device_id] = RealtimeBeatExtractor(
                 fs=FS,
@@ -896,6 +899,11 @@ class ApneaEngine:
     ) -> dict:
 
         self._ensure_device(device_id)
+
+        # ── t0 저장 (첫 번째 패킷일 때만) ──────────────
+        if device_id not in self._t0 and packet_timestamp:
+            self._t0[device_id] = packet_timestamp
+
 
         with self._dev_lock:
             self._packet_count[device_id] += 1
