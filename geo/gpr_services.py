@@ -236,6 +236,24 @@ def reverify_past_rows_in_window(processed_df, exclude_id):
         new_interp_method = safe_value(row.get("interp_method"))
         new_state_primary = safe_value(row.get("state_primary"))
 
+        # 60분 조회 윈도우가 슬라이딩하면서 이 row가 채워질 때 쓴 prev/next anchor가
+        # 윈도우 밖으로 밀려나면, GPS 데이터는 그대로인데 재계산만 "앵커를 못 찾음"으로
+        # 나올 수 있다. 이미 채워진 좌표를 그런 이유로 NULL로 되돌리면 데이터 유실이므로,
+        # 이번에 진짜로 outlier로 재탐지된 경우가 아니면 기존 값을 그대로 둔다.
+        new_is_outlier = bool(
+            safe_value(row.get("is_jump_outlier"))
+            or safe_value(row.get("is_contextual_spike_outlier"))
+            or safe_value(row.get("is_reverse_spike_outlier"))
+        )
+        regressed_to_unresolved = (
+            existing.latitude is not None
+            and existing.longitude is not None
+            and (new_lat is None or new_lon is None)
+            and not new_is_outlier
+        )
+        if regressed_to_unresolved:
+            continue
+
         changed = (
             new_decision != existing.gps_filter_decision
             or not _coords_close(new_lat, existing.latitude)
