@@ -14,6 +14,8 @@ except ImportError:
 
 
 
+
+
 MODEL_DIR = Path(settings.BASE_DIR) / "media" / "models" / "imu"
 
 MODEL_PATH = MODEL_DIR / "model_classification.tflite"
@@ -33,8 +35,8 @@ MARGIN_P4 = 0.18
 GATE_Z_STD = 0.80
 GATE_Z_DSTD = 0.90
 
-TH_ACTIVITY = 9.90
-TH_D_ACTIVITY = 0.25
+TH_ACTIVITY = 10.45
+TH_D_ACTIVITY = 0.40
 TH_ACTIVE_STD = 1.0
 TH_ACTIVE_DSTD = 1.2
 
@@ -43,9 +45,9 @@ STRONG_MARGIN_P3 = 0.08
 MOD_STD_MIN = 0.30
 MOD_DSTD_MIN = 0.30
 
-HYST_UP_CONSEC = 2
+HYST_UP_CONSEC = 1
 HYST_DOWN_CONSEC = 2
-TH_P3_UP = 0.45
+TH_P3_UP = 0.40
 TH_P3_DOWN = 0.45
 MARGIN_P3_UP = 0.10
 MARGIN_P3_DOWN = 0.05
