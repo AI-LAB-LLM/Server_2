@@ -33,6 +33,11 @@ def _is_corrected_point(latitude, longitude, raw_latitude, raw_longitude):
         or abs(longitude - raw_longitude) > COORD_CORRECTED_EPSILON_DEG
     )
 
+
+def _is_missing_filled_point(raw_latitude, raw_longitude):
+    # raw GPS 자체가 없어서(NULL) 보간으로 좌표를 채운 지점.
+    return raw_latitude is None or raw_longitude is None
+
 _BASELINE_DIR = Path(settings.BASE_DIR) / "media" / "models" / "geo" / "baseline"
 
 
@@ -269,6 +274,9 @@ class GeoTrackDataView(APIView):
         for row in rows:
             row["is_corrected"] = _is_corrected_point(
                 row["latitude"], row["longitude"],
+                row["raw_latitude"], row["raw_longitude"],
+            )
+            row["is_missing_filled"] = _is_missing_filled_point(
                 row["raw_latitude"], row["raw_longitude"],
             )
 
