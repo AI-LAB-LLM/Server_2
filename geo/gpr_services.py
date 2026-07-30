@@ -184,6 +184,55 @@ def save_raw_as_final_for_unsupported_device(geo_obj):
 
 
 # =========================
+# 과거 미보정 row 재검증
+# =========================
+
+def fill_still_uncorrected_rows_in_window(processed_df, exclude_id):
+    if "id" not in processed_df.columns:
+        return []
+
+    updated_ids = []
+
+    for _, row in processed_df.iterrows():
+        row_id = row.get("id")
+        if row_id is None or pd.isna(row_id):
+            continue
+
+        row_id = int(row_id)
+        if row_id == exclude_id:
+            continue
+
+        try:
+            existing = GeoProcessedData.objects.get(id=row_id)
+        except GeoProcessedData.DoesNotExist:
+            continue
+
+        # 이미 보정값이 있는 row는 재검증 대상에서 완전히 제외한다.
+        if existing.latitude is not None and existing.longitude is not None:
+            continue
+
+        new_lat = safe_value(row.get("Latitude"))
+        new_lon = safe_value(row.get("longitude"))
+
+        # 이번에도 여전히 못 채웠으면 그대로 둔다.
+        if new_lat is None or new_lon is None:
+            continue
+
+        existing.latitude = new_lat
+        existing.longitude = new_lon
+        existing.gps_quality = safe_value(row.get("gps_quality"))
+        existing.gps_filter_decision = safe_value(row.get("gps_filter_decision"))
+        existing.use_raw_for_gpr = safe_value(row.get("use_raw_for_gpr"))
+        existing.interp_method = safe_value(row.get("interp_method"))
+        existing.state_primary = safe_value(row.get("state_primary"))
+        existing.save()
+
+        updated_ids.append(row_id)
+
+    return updated_ids
+
+
+# =========================
 # GPR 실행 및 DB 업데이트
 # =========================
 
@@ -243,6 +292,12 @@ def run_gpr_and_update_latest(geo_obj):
 
         geo_obj.save()
 
+        # 과거 row 중 아직 한 번도 보정되지 않은(=latitude/longitude가 비어있는)
+        # row만 이번 계산 결과로 채운다. 이미 보정된 row는 건드리지 않는다.
+        filled_ids = fill_still_uncorrected_rows_in_window(
+            processed_df, exclude_id=geo_obj.id
+        )
+
         return {
             "gpr_status": "ok",
             "geo_processed_id": geo_obj.id,
@@ -253,6 +308,7 @@ def run_gpr_and_update_latest(geo_obj):
             "use_raw_for_gpr": geo_obj.use_raw_for_gpr,
             "interp_method": geo_obj.interp_method,
             "state_primary": geo_obj.state_primary,
+            "filled_geo_processed_ids": filled_ids,
         }
 
     except Exception as e:
