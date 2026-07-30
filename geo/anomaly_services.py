@@ -202,10 +202,11 @@ def save_anomaly_result_if_needed(geo_obj, latest_result):
             GeoTripAnomalyResult.objects
             .select_for_update()
             .filter(
+                protectee=geo_obj.protectee,
                 device_id=geo_obj.device_id,
-                trip_start_time=trip_start_time,
                 trip_end_time=trip_end_time,
             )
+            .order_by("id")
             .first()
         )
 
