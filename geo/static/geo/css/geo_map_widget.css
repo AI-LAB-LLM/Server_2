@@ -139,6 +139,15 @@
   background: #f97316;
 }
 
+/* raw GPS 자체가 없어서(결측/NULL) 보간으로 채운 지점 표시 */
+.geo-dot.is-missing-filled {
+  background: #a855f7;
+}
+
+.geo-dot.is-latest.is-missing-filled {
+  background: #9333ea;
+}
+
 /* 보정 전 raw 위치 표시용 (속이 빈 점) */
 .geo-dot-raw {
   width: 7px;

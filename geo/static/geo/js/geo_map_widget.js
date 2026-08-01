@@ -36,7 +36,10 @@ function createPointOverlay(kakao, map, point, isLatest) {
   tooltip.textContent = formatKst(point.timestamp);
 
   const dot = document.createElement("div");
-  dot.className = "geo-dot" + (isLatest ? " is-latest" : "") + (point.is_corrected ? " is-corrected" : "");
+  dot.className = "geo-dot"
+    + (isLatest ? " is-latest" : "")
+    + (point.is_corrected ? " is-corrected" : "")
+    + (point.is_missing_filled ? " is-missing-filled" : "");
 
   dot.addEventListener("mouseenter", () => tooltip.classList.add("is-visible"));
   dot.addEventListener("mouseleave", () => {
