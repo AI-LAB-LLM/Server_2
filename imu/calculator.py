@@ -57,6 +57,12 @@ SHAKE_MEAN_MAX = TH_ACTIVITY + 0.8
 P3_STRONG_MIN = 0.60
 JERK_RATIO_TH = 1.30
 
+# 레벨3 강제 밴드: 실측 데이터상 svm_std(x2)가 레벨2/레벨4와 겹치지 않는 구간이라
+# 모델 확률(p3c) 기반 히스테리시스에 기대지 않고 레벨3으로 바로 확정한다.
+# (레벨2 관측 최대 3.15, 레벨3 관측 5.65~7.96, 레벨4 관측 최소 8.88)
+TH_L3_STD_MIN = 4.50
+TH_L3_STD_MAX = 8.40
+
 GRAVITY = 9.80665
 
 
@@ -314,6 +320,13 @@ def calculate_grade_from_probs(
         grade = 5
     elif allow_high and (p4 >= TH_P4) and ((p4 - p3c) >= MARGIN_P4):
         grade = 4
+    elif TH_L3_STD_MIN <= x2 <= TH_L3_STD_MAX:
+        # svm_std만으로 레벨2/레벨4와 겹치지 않는 구간 -> 확률/히스테리시스 없이 레벨3 확정
+        grade = 3
+        state.state23 = 3
+        state.consec3_cond = 0
+        state.consec2_cond = 0
+        state.recent_grade_cand.append(3)
 
     if grade is None:
         if is_static:
