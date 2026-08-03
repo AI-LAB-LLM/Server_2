@@ -2,7 +2,7 @@ from django.utils import timezone
 from .models import Protectee, MonitoringSession, SensorWindow
 
 
-SESSION_TIMEOUT_SEC = 60
+SESSION_TIMEOUT_SEC = 90
 
 
 def normalize_device_id(device_id: str) -> str:
