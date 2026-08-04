@@ -320,13 +320,6 @@ def calculate_grade_from_probs(
         grade = 5
     elif allow_high and (p4 >= TH_P4) and ((p4 - p3c) >= MARGIN_P4):
         grade = 4
-    elif TH_L3_STD_MIN <= x2 <= TH_L3_STD_MAX:
-        # svm_std만으로 레벨2/레벨4와 겹치지 않는 구간 -> 확률/히스테리시스 없이 레벨3 확정
-        grade = 3
-        state.state23 = 3
-        state.consec3_cond = 0
-        state.consec2_cond = 0
-        state.recent_grade_cand.append(3)
 
     if grade is None:
         if is_static:
@@ -374,10 +367,16 @@ def calculate_grade_from_probs(
             else:
                 g_cand = state.state23
 
-            grade = min(g_cand, 3)
+            if TH_L3_STD_MIN <= x2 <= TH_L3_STD_MAX:
+                # svm_std만으로 레벨2/레벨4와 겹치지 않는 구간 -> 출력만 3으로 확정한다.
+                # 히스테리시스 상태(state23/consec_cond/recent_grade_cand)는 바로 위에서
+                # 이미 정상적으로 갱신했으므로, 구간을 벗어날 때 잔상 없이 자연스럽게 이어진다.
+                grade = 3
+            else:
+                grade = min(g_cand, 3)
 
-            if grade == 3 and in_moderate_band and (mp3 < TH_P3_DOWN):
-                grade = 2
+                if grade == 3 and in_moderate_band and (mp3 < TH_P3_DOWN):
+                    grade = 2
 
     return int(max(1, min(5, grade)))
 
