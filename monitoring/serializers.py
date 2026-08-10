@@ -62,6 +62,11 @@ class SensorWindowCreateSerializer(serializers.Serializer):
         help_text="integer, 데이터 길이 초 단위. 현재 12 고정",
     )
 
+    idx = serializers.IntegerField(
+        required=False,
+        help_text="integer, 데이터 윈도우 인덱스. 5분간 12초 윈도우 전송 시 1~25 순차 번호. THREAT/PERIODIC 모드에서 필수, Calibration에서는 불필요",
+    )
+
     imu = serializers.DictField(
         required=False,
         allow_empty=True,
@@ -117,6 +122,14 @@ class SensorWindowCreateSerializer(serializers.Serializer):
             attrs["z"] = None
             attrs["ppg_green"] = ppg_green
             return attrs
+
+        idx = attrs.get("idx")
+
+        if idx is None:
+            raise serializers.ValidationError("THREAT/PERIODIC 모드에서는 idx가 필요합니다.")
+
+        if not (1 <= idx <= 25):
+            raise serializers.ValidationError("idx는 1~25 사이의 값이어야 합니다.")
 
         x = imu.get("x")
         y = imu.get("y")

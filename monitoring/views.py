@@ -63,6 +63,7 @@ Request body:
 - sample_rate_hz: integer, 25Hz 고정
 - duration_sec: integer, 12초 고정
 - timestamp: 해당 12초 윈도우의 시작 시간. UNIX time, ms
+- idx: integer, 데이터 윈도우 인덱스. 5분간 12초 윈도우 전송 시 1~25 순차 번호. THREAT/PERIODIC(1/2)에서 필수, Calibration(3)에서는 불필요
 - imu.x: number[], 길이 300
 - imu.y: number[], 길이 300
 - imu.z: number[], 길이 300
@@ -88,6 +89,7 @@ Request body:
                 "sample_rate_hz": 25,
                 "duration_sec": 12,
                 "timestamp": 1777824000000,
+                "idx": 1,
                 "imu": {
                     "x": [0.01, 0.02, 0.03],
                     "y": [0.11, 0.12, 0.13],
@@ -105,6 +107,7 @@ Request body:
                 "sample_rate_hz": 25,
                 "duration_sec": 12,
                 "timestamp": 1777824000000,
+                "idx": 1,
                 "imu": {
                     "x": [0.01, 0.02, 0.03],
                     "y": [0.11, 0.12, 0.13],
@@ -248,13 +251,11 @@ def create_sensor_window(request):
         ppg_green=serializer.validated_data["ppg_green"],
     )
 
-    window_count = SensorWindow.objects.filter(
-        session=session,
-    ).count()
-
     if session.mode == MonitoringSession.Mode.CALIBRATION:
+        window_count = SensorWindow.objects.filter(session=session).count()
         required_window_count = 8
     else:
+        window_count = serializer.validated_data["idx"]
         required_window_count = 25
 
     update_fields = ["window_count", "last_received_at"]
