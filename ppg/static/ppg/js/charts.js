@@ -1,13 +1,9 @@
-// apnea/static/apnea/js/charts.js
-// 기존 ppg/static/js/charts.js와 동일. 타이틀만 Apnea 전용으로 변경.
+// ppg/static/ppg/js/charts.js
 
-import { charts, safelyGet, latestItem, getIrbufPoints  } from './state.js';
+import { charts, safelyGet, latestItem, getIrbufPoints } from './state.js';
 
-const WINDOW_SEC = 240;
-const APNEA_THR_CONST = 0.5;  // 기본 임계값 (모델 config에서 덮어씀)
+const WINDOW_SEC = 600;
 window.IR_MAX_CHUNKS ??= 120;
-
-
 
 export function renderIrHolding() {
   const elChart = document.getElementById('irHoldingChart');
@@ -20,12 +16,10 @@ export function renderIrHolding() {
     return;
   }
 
-  // x축 0~600 고정
-// x축: 최신 time_sec 기준으로 600초 슬라이딩
-  const WINDOW = 600;
-  const lastX  = bufFull.length > 0 ? bufFull[bufFull.length - 1].x : WINDOW;
-  const X_MAX  = lastX;
-  const X_MIN  = Math.max(0, lastX - WINDOW);
+  // x축: abs_ts 기반 Unix timestamp(초), 최신 600초 슬라이딩
+  const lastX = bufFull[bufFull.length - 1].x;
+  const X_MAX = lastX;
+  const X_MIN = Math.max(bufFull[0].x, lastX - WINDOW_SEC);
 
   const ptsProb = bufFull.map(p => {
     const y = Number(p.y);
@@ -33,15 +27,17 @@ export function renderIrHolding() {
   });
 
   const thrBase = (window.__apneaThr && Number.isFinite(window.__apneaThr))
-    ? window.__apneaThr
-    : 0.5;
+    ? window.__apneaThr : 0.5;
 
   const hotIdx = [];
   const bands  = [];
   for (const pt of bufFull) {
     const y = Number(pt.y);
-    if (pt.valid !== true || pt.wear_valid !== true ) {bands.push(pt.x);
-    }else if (Number.isFinite(y) && y > thrBase) {hotIdx.push(pt.x);}
+    if (pt.valid !== true || pt.wear_valid !== true) {
+      bands.push(pt.x);
+    } else if (Number.isFinite(y) && y > thrBase) {
+      hotIdx.push(pt.x);
+    }
   }
 
   const dataSeries = [
@@ -74,20 +70,29 @@ export function renderIrHolding() {
         tickLength: 0, labelFormatter: () => '' }
     : {};
 
+  const axisX = {
+    title: 'time',
+    minimum: X_MIN,
+    maximum: X_MAX,
+    interval: 120,
+    viewportMinimum: X_MIN,
+    viewportMaximum: X_MAX,
+    labelFormatter: function(e) {
+      return new Date(e.value * 1000).toLocaleTimeString('ko-KR', {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    },
+  };
+
+  
   if (!charts.irHolding) {
     charts.irHolding = new CanvasJS.Chart('irHoldingChart', {
       title: { text: 'Real-time Apnea Detection (Smoothed Probability)',
                fontSize: 18, fontWeight: 'normal', fontFamily: 'Arial' },
       animationEnabled: false,
       zoomEnabled: false,
-      axisX: {
-        title: 'time (sec)',
-        minimum: X_MIN,
-        maximum: X_MAX,
-        interval: 60,
-        viewportMinimum: X_MIN,
-        viewportMaximum: X_MAX,
-      },
+      axisX,
       axisY,
       axisY2,
       data: dataSeries,
@@ -95,15 +100,11 @@ export function renderIrHolding() {
         shared: true,
         content: function(e) {
           const x  = e.entries?.[0]?.dataPoint?.x;
-          const pt = bufFull.find(b => Math.abs(b.x - x) < 0.01);         
+          const pt = bufFull.find(b => Math.abs(b.x - x) < 0.5);
           const p  = (pt?.y != null) ? Number(pt.y).toFixed(3) : '-';
           const t  = thrBase.toFixed(2);
           const v  = (pt?.valid === true) ? 'ok' : 'baseline/warming-up';
           const lb = (pt?.label != null) ? Number(pt.label) : '-';
-          // const baseTs = getIrbufBaseTs();
-          // const ts     = (baseTs && x != null)
-          //   ? new Date(baseTs + x * 1000).toLocaleTimeString('ko-KR')
-          //   : '-';
           const ts = pt?.ts
             ? new Date(pt.ts).toLocaleTimeString('ko-KR')
             : '-';
@@ -113,13 +114,10 @@ export function renderIrHolding() {
       legend: { verticalAlign: 'bottom' }
     });
   } else {
+    charts.irHolding.options.axisX  = axisX;
     charts.irHolding.options.axisY  = axisY;
     charts.irHolding.options.axisY2 = axisY2;
     charts.irHolding.options.data   = dataSeries;
-    charts.irHolding.options.axisX.minimum         = X_MIN;
-    charts.irHolding.options.axisX.maximum         = X_MAX;
-    charts.irHolding.options.axisX.viewportMinimum = X_MIN;
-    charts.irHolding.options.axisX.viewportMaximum = X_MAX;
   }
 
   if (elChart.offsetWidth === 0 || elChart.offsetHeight === 0) return;
@@ -139,12 +137,12 @@ export function renderWearStatus() {
   const elImg = document.getElementById('wearStateImage');
   if (!card || !elTxt || !elMeta || !elImg) return;
 
-  const it = latestItem();
+  const it   = latestItem();
   const wear = it ? safelyGet(it, 'predictions.WEAR_GREEN', null) : null;
-  const ts = it?.timestamp || '-';
+  const ts   = it?.timestamp || '-';
 
   if (!wear || !wear.valid) {
-    card.className = 'card wear-card is-unk';
+    card.className     = 'card wear-card is-unk';
     elTxt.textContent  = 'Still checking...';
     elMeta.textContent = `invalid / ${ts}`;
     elImg.src = '/static/ppg/image/loading.png';
@@ -152,12 +150,12 @@ export function renderWearStatus() {
   }
 
   if (wear.label === 1) {
-    card.className = 'card wear-card is-wear';
+    card.className     = 'card wear-card is-wear';
     elTxt.textContent  = 'Wearing';
     elMeta.textContent = `valid / ${ts}`;
     elImg.src = '/static/ppg/image/wear_on.png';
   } else {
-    card.className = 'card wear-card is-off';
+    card.className     = 'card wear-card is-off';
     elTxt.textContent  = 'Not Wearing';
     elMeta.textContent = `valid / ${ts}`;
     elImg.src = '/static/ppg/image/wear_off.png';
