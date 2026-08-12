@@ -1,4 +1,3 @@
-// apnea/static/apnea/js/state.js
 
 export const POPUP_ENABLED = true;
 
@@ -71,17 +70,13 @@ export function appendIrFromItems(items) {
 
     if (Array.isArray(beatResults) && beatResults.length > 0 && pred) {
       for (const beat of beatResults) {
-        const timeSec = beat?.time_sec;
-        const prob    = beat?.p_apnea_smooth;
-        const valid   = beat?.status === 'ok';
-        const label   = beat?.pred_label;
-        const absTs   = beat?.abs_ts ?? null;  // ← abs_ts 사용
-
-
-        if (timeSec == null) continue;
-
-        const x = Number(timeSec);
-        if (!Number.isFinite(x)) continue;
+          const absTs = beat?.abs_ts ?? null;
+          const prob  = beat?.p_apnea_smooth;
+          const valid = beat?.status === 'ok';
+          const label = beat?.pred_label;
+          if (!absTs) continue;
+          const x = new Date(absTs).getTime() / 1000;
+          if (!Number.isFinite(x)) continue;
 
         if (IRBUF.length > 0 && x < IRBUF[IRBUF.length - 1].x) {
           console.warn('[IRBUF] x 역전 스킵:', x);

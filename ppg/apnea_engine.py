@@ -901,9 +901,6 @@ class ApneaEngine:
 
         self._ensure_device(device_id)
 
-        # ── t0 저장 (첫 번째 패킷일 때만) ──────────────
-        if device_id not in self._t0 and packet_timestamp:
-            self._t0[device_id] = packet_timestamp
 
 
         with self._dev_lock:

@@ -30,31 +30,57 @@ def handle_sensor_window(sender, instance, created, **kwargs):
             apnea_session = _get_or_create_apnea_session(device_id, sw.started_at)
             if not engine._baseline_active.get(device_id, False):
                 engine.start_session(device_id, session_pk=apnea_session.pk)
+                # ★ t0를 apnea_session.started_at으로 명시 설정
+                engine._t0[device_id] = apnea_session.started_at
             result = engine.process_chunk(
+
                 device_id, ppg_green, ppg_ir=[], ppg_red=[],
+
                 session_db=apnea_session, packet_timestamp=sw.started_at,
+
             )
+               # baseline이 아직 완료 안 됐는데 충분한 샘플이 DB에 있으면 강제 완료
+            if not engine._baseline_done.get(device_id, False):
+                from monitoring.models import SensorWindow as SW
+                all_ppg = []
+                for w in SW.objects.filter(
+                    session__protectee__device_id=device_id,
+                    session__mode='CALIBRATION'
+                    started_at__gte=apnea_session.started_at  # ← 현재 세션 시작 이후만
+
+                ).order_by('started_at'):
+                    all_ppg.extend(w.ppg_green)
+
+                if len(all_ppg) >= 2250:
+                    logger.info(f"[CAL] 강제 baseline 수집: {device_id} 샘플={len(all_ppg)}")
+                    engine._baseline_buf[device_id] = all_ppg  # 기존 버퍼 교체
+                    engine._finalize_baseline(device_id, apnea_session)
 
         elif mode == 'THREAT':
             apnea_session = _get_latest_apnea_session(device_id)
-           # ★ worker가 baseline 상태를 모르면 DB에서 즉시 복원
             if apnea_session and not engine._baseline_done.get(device_id, False):
                 _restore_baseline_if_needed(engine, device_id, apnea_session)
-
+                # ★ 복원 시에도 t0 설정
+                if device_id not in engine._t0:
+                    engine._t0[device_id] = apnea_session.started_at
             result = engine.process_chunk(
-                device_id, ppg_green, ppg_ir=[], ppg_red=[],
-                session_db=apnea_session, packet_timestamp=sw.started_at,
-            )
 
+                            device_id, ppg_green, ppg_ir=[], ppg_red=[],
+
+                            session_db=apnea_session, packet_timestamp=sw.started_at,
+
+                        )
         else:
             return
 
         # ── abs_ts 계산 ────────────────────────────────
-        # t0 = 엔진이 기억하는 첫 번째 패킷 시각
-        # time_sec = sp_sample / 25 (서버 시작 이후 누적 초)
-        # abs_ts = t0 + time_sec
         beat_results = result.get("beat_results") or []
         t0 = engine._t0.get(device_id)
+
+        # t0가 없으면 apnea_session.started_at으로 설정
+        if not t0 and apnea_session:
+            t0 = apnea_session.started_at
+            engine._t0[device_id] = t0
 
         if beat_results and t0:
             for beat in beat_results:
@@ -136,7 +162,7 @@ def _restore_baseline_if_needed(engine, device_id, apnea_session):
 def _get_or_create_apnea_session(device_id, started_at):
     from .models import ApneaSession
     session = (ApneaSession.objects
-               .filter(device_id=device_id, baseline_ready=False)
+               .filter(device_id=device_id, started_at__gte=started_at,baseline_ready=False)
                .order_by('-started_at')
                .first())
     if session:
