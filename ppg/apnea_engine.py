@@ -676,6 +676,7 @@ class ApneaEngine:
         self._baseline_active: Dict[str, bool] = {}
         self._session_pk: Dict[str, int] = {}
         self._t0: Dict[str, object] = {}  # ← 추가: device_id별 첫 샘플 절대 시각
+        self._baseline_session_pk = {} #추가
 
     @classmethod
     def get_instance(cls):
@@ -1008,6 +1009,8 @@ class ApneaEngine:
                 "p_apnea_smooth": r.get("p_apnea_smooth"),
                 "pred_label": r.get("pred_label"),
                 "status": r.get("status", "ok"),
+                "sp_sample": beat_feat.get("sp_sample"),
+
             })
 
             last = r

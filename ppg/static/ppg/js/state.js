@@ -78,10 +78,10 @@ export function appendIrFromItems(items) {
           const x = new Date(absTs).getTime() / 1000;
           if (!Number.isFinite(x)) continue;
 
-        if (IRBUF.length > 0 && x < IRBUF[IRBUF.length - 1].x) {
-          console.warn('[IRBUF] x 역전 스킵:', x);
-          continue;
-        }
+        // if (IRBUF.length > 0 && x < IRBUF[IRBUF.length - 1].x) {
+        //   console.warn('[IRBUF] x 역전 스킵:', x);
+        //   continue;
+        // }
 
 
         if (IRBUF_BASE_TS === null && r?.timestamp) {
@@ -95,11 +95,14 @@ export function appendIrFromItems(items) {
           ts: absTs,  // ← abs_ts 직접 사용
           // ts: r?.timestamp ?? null,
           thr: null,
+          session_id: r?.session_id ?? null,   // 추가
           label,
           wear_valid: r?.predictions?.WEAR_GREEN?.valid,
         });
       }
     }
+
+    IRBUF.sort((a, b) => a.x - b.x);
 
     if (IRBUF.length > IRBUF_CAP) {
       IRBUF.splice(0, IRBUF.length - IRBUF_CAP);

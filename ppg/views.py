@@ -46,6 +46,7 @@ class ApneaRecordsView(View):
             item = {
                 "id":               r.pk,
                 "sensor_window_id": sw.pk,
+                "session_id":       sw.session_id,   # 추가
                 "device_id":        r.device_id,
                 "timestamp":        sw.started_at.isoformat(),
                 "ended_at":         sw.ended_at.isoformat() if sw.ended_at else None,
@@ -109,6 +110,7 @@ class DeviceDashboardView(View):
             item = {
                 "id":               r.pk,
                 "sensor_window_id": sw.pk,
+                "session_id":       sw.session_id,   # 추가
                 "device_id":        r.device_id,
                 "timestamp":        sw.started_at.isoformat(),
                 "ended_at":         sw.ended_at.isoformat() if sw.ended_at else None,

@@ -21,10 +21,43 @@ export function renderIrHolding() {
   const X_MAX = lastX;
   const X_MIN = Math.max(bufFull[0].x, lastX - WINDOW_SEC);
 
-  const ptsProb = bufFull.map(p => {
+  // const ptsProb = bufFull.map(p => {
+  //   const y = Number(p.y);
+  //   return { x: p.x, y: Number.isFinite(y) ? y : null };
+  const ptsProb = [];
+
+  for (let i = 0; i < bufFull.length; i++) {
+    const p = bufFull[i];
     const y = Number(p.y);
-    return { x: p.x, y: Number.isFinite(y) ? y : null };
-  });
+
+    if (i > 0) {
+      const prev = bufFull[i - 1];
+
+      // MonitoringSession이 바뀌면 선만 끊음
+      if (
+        prev.session_id != null &&
+        p.session_id != null &&
+        prev.session_id !== p.session_id
+      ) {
+        ptsProb.push({
+          x: p.x - 0.001,
+          y: null,
+          ts: p.ts,
+          valid: p.valid,
+          label: p.label,
+        });
+      }
+    }
+
+      ptsProb.push({
+        x: p.x,
+        y: Number.isFinite(y) ? y : null,
+        ts: p.ts,
+        valid: p.valid,
+        label: p.label,
+        session_id: p.session_id,
+      });
+    }
 
   const thrBase = (window.__apneaThr && Number.isFinite(window.__apneaThr))
     ? window.__apneaThr : 0.5;
@@ -97,17 +130,28 @@ export function renderIrHolding() {
       axisY2,
       data: dataSeries,
       toolTip: {
-        shared: true,
+        shared: false,
         content: function(e) {
-          const x  = e.entries?.[0]?.dataPoint?.x;
-          const pt = bufFull.find(b => Math.abs(b.x - x) < 0.5);
-          const p  = (pt?.y != null) ? Number(pt.y).toFixed(3) : '-';
-          const t  = thrBase.toFixed(2);
-          const v  = (pt?.valid === true) ? 'ok' : 'baseline/warming-up';
-          const lb = (pt?.label != null) ? Number(pt.label) : '-';
-          const ts = pt?.ts
-            ? new Date(pt.ts).toLocaleTimeString('ko-KR')
+          const dp = e.entries?.[0]?.dataPoint;
+
+          const p = dp?.y != null
+            ? Number(dp.y).toFixed(3)
             : '-';
+
+          const t = thrBase.toFixed(2);
+
+          const v = dp?.valid === true
+            ? 'ok'
+            : 'baseline/warming-up';
+
+          const lb = dp?.label != null
+            ? Number(dp.label)
+            : '-';
+
+          const ts = dp?.ts
+            ? new Date(dp.ts).toLocaleTimeString('ko-KR')
+            : '-';
+
           return `<b>${ts}</b><br>p(apnea)=${p} / thr=${t} / label=${lb} / ${v}`;
         }
       },

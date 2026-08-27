@@ -19,7 +19,7 @@ from .utils import (
     get_or_create_protectee_by_device_id,
     get_or_create_session_for_sensor_data,
 )
-from imu.services import run_imu_level_for_window
+from imu.services import run_imu_level_for_window, run_imu_overlap_for_window
 
 
 SensorWindowResponseSerializer = inline_serializer(
@@ -31,6 +31,12 @@ SensorWindowResponseSerializer = inline_serializer(
         "mode": serializers.IntegerField(help_text="1=THREAT, 2=PERIODIC, 3=캘리브레이션"),
         "imu": serializers.DictField(
             allow_null=True,
+            help_text="이번 윈도우 전체(12초)에 대한 IMU 계산 결과",
+        ),
+        "imu_overlap": serializers.DictField(
+            allow_null=True,
+            help_text="직전 윈도우 뒤 6초 + 이번 윈도우 앞 6초를 이어붙인 오버랩 구간 IMU 계산 결과. "
+                       "직전 윈도우가 없거나(세션 첫 윈도우) 연속되지 않으면 imu_status=skipped",
         ),
     },
 )
@@ -55,19 +61,26 @@ mode별 처리:
 - 2 (주기보고): 데이터 저장. IMU x, y, z + PPG green 필요
 - 3 (Calibration): 캘리브레이션 데이터 저장. PPG green만 필요, IMU는 저장하지 않음
 - 1 / 2: 12초 윈도우 25개 = 5분
-- 3: 12초 윈도우 8개 = 96초
+- 3: 12초 윈도우 최대 25개(=5분). idx를 함께 보내면 25에 도달한 순간 세션이 즉시 종료됨.
+  idx 없이 8개만 보내고 멈추는 경우(96초 캘리브레이션)에는 즉시 종료되지 않고,
+  타임아웃(90초 무응답) 도달 시 백그라운드 작업(close_stale_sessions 커맨드)이 종료 처리함
 
 Request body:
 - device_id: string, 전용 워치 ID
 - mode: number, 1=이벤트보고, 2=주기보고, 3=Calibration
 - sample_rate_hz: integer, 25Hz 고정
-- duration_sec: integer, 12초 고정
+- duration_sec: integer, 보내는 값 그대로 사용(고정값 아님, 기본 12)
 - timestamp: 해당 12초 윈도우의 시작 시간. UNIX time, ms
 - idx: integer, 데이터 윈도우 인덱스. 5분간 12초 윈도우 전송 시 1~25 순차 번호. THREAT/PERIODIC(1/2)에서 필수, Calibration(3)에서는 불필요
-- imu.x: number[], 길이 300
-- imu.y: number[], 길이 300
-- imu.z: number[], 길이 300
-- ppg_green: number[], 길이 300
+- imu.x: number[], 길이 300 기준(300개 초과 시 앞 300개만 사용, 15개 넘게 초과하면 에러)
+- imu.y: number[], 길이 300 기준(300개 초과 시 앞 300개만 사용, 15개 넘게 초과하면 에러)
+- imu.z: number[], 길이 300 기준(300개 초과 시 앞 300개만 사용, 15개 넘게 초과하면 에러)
+- ppg_green: number[], 길이 300 기준(300개 초과 시 앞 300개만 사용, 15개 넘게 초과하면 에러)
+
+IMU 계산 시점:
+- 세션의 첫 윈도우는 12초 전체로 계산 (imu)
+- 그 다음부터는 매 윈도우 도착마다 "직전 윈도우 뒤 6초 + 이번 윈도우 앞 6초" 오버랩도 함께 계산 (imu_overlap)
+- 즉 결과는 첫 윈도우만 12초 뒤에 나오고, 이후로는 6초 간격을 대표하는 결과가 함께 반환됨
 """,
     request=SensorWindowCreateSerializer,
     responses={
@@ -141,6 +154,13 @@ Request body:
                     "result_id": 1,
                     "level": 2,
                     "probs": [0.1, 0.2, 0.3, 0.2, 0.2],
+                },
+                "imu_overlap": {
+                    "imu_status": "saved",
+                    "result_id": 2,
+                    "level": 2,
+                    "probs": [0.1, 0.2, 0.3, 0.2, 0.2],
+                    "timestamp": "2026-08-12T11:19:51",
                 },
             },
             response_only=True,
@@ -252,8 +272,14 @@ def create_sensor_window(request):
     )
 
     if session.mode == MonitoringSession.Mode.CALIBRATION:
-        window_count = SensorWindow.objects.filter(session=session).count()
-        required_window_count = 8
+        idx = serializer.validated_data.get("idx")
+        if idx is not None:
+            # idx를 보내는 클라이언트는 자신이 몇 번째 윈도우를 보내는지 알고 있으므로
+            # DB 카운트보다 idx를 신뢰해 25 도달 시 즉시 세션을 종료할 수 있게 한다.
+            window_count = idx
+        else:
+            window_count = SensorWindow.objects.filter(session=session).count()
+        required_window_count = 25
     else:
         window_count = serializer.validated_data["idx"]
         required_window_count = 25
@@ -269,7 +295,11 @@ def create_sensor_window(request):
     session.save(update_fields=update_fields)
 
     imu_result = None
+    imu_overlap_result = None
     if session.mode != MonitoringSession.Mode.CALIBRATION:
+        # 오버랩(직전 윈도우 뒤 6초 + 이번 윈도우 앞 6초)이 시간상 더 앞선 구간이므로
+        # 전체 윈도우 계산보다 먼저 실행해 IMU 히스테리시스 상태가 시간 순서대로 갱신되게 한다.
+        imu_overlap_result = run_imu_overlap_for_window(window)
         imu_result = run_imu_level_for_window(window)
 
     return Response(
@@ -279,6 +309,7 @@ def create_sensor_window(request):
             "received_window_count": window_count,
             "mode": mode_code,
             "imu": imu_result,
+            "imu_overlap": imu_overlap_result,
         },
         status=status.HTTP_201_CREATED,
     )
