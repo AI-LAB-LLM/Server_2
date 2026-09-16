@@ -804,7 +804,8 @@ class ApneaEngine:
             device=device_str,
         )
 
-        last_beats = ref_seq[-10:] if len(ref_seq) >= 10 else ref_seq
+        prefill_n = context_len - 1
+        last_beats = ref_seq[-prefill_n:] if len(ref_seq) >= prefill_n else ref_seq
         for feat_vec in last_beats:
             norm_vec = normalize_feature_vector(feat_vec.astype(np.float32), ref_mu, ref_sd)
             detector.beat_window.append(norm_vec)
