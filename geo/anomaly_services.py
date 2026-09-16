@@ -11,6 +11,8 @@ import pandas as pd
 from django.conf import settings
 from django.db import transaction
 
+from analysis.models import Result
+
 from .models import GeoProcessedData, GeoTripAnomalyResult
 from .anomaly_runtime import AnomalyRuntime
 from .device_config import (
@@ -18,6 +20,30 @@ from .device_config import (
     is_geo_model_supported_device,
     resolve_geo_model_device_id,
 )
+
+
+GEO_ROUTE_LABEL_RISK = {
+    GeoTripAnomalyResult.RouteLabel.KNOWN_NORMAL: (1, False),
+    GeoTripAnomalyResult.RouteLabel.ANOMALY: (5, True),
+}
+
+# GeoTripAnomalyResult 결과를 analysis_result에도 반영.
+def save_geo_analysis_result(result_obj):
+    risk = GEO_ROUTE_LABEL_RISK.get(result_obj.final_route_label)
+    if risk is None:
+        return None
+
+    risk_level, risk_detected = risk
+
+    return Result.objects.create(
+        device_id=result_obj.device_id,
+        mode=Result.Mode.THREAT,
+        event_type=Result.EventType.GEO,
+        timestamp=result_obj.trip_end_time,
+        probability=None,
+        risk_level=risk_level,
+        risk_detected=risk_detected,
+    )
 
 
 # =========================
@@ -232,6 +258,8 @@ def save_anomaly_result_if_needed(geo_obj, latest_result):
             threshold=threshold,
             message=runtime_status,
         )
+
+        save_geo_analysis_result(result_obj)
 
     return result_obj, {
         "anomaly_status": "saved",
