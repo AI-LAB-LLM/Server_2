@@ -179,6 +179,10 @@ def _restore_baseline_if_needed(engine, device_id, apnea_session):
             device               = device_str,
         )
 
+        last_beats = stats.get('last_beats') or []
+        for vec in last_beats:
+            detector.beat_window.append(np.array(vec, dtype=np.float32))
+
         extractor = RealtimeBeatExtractor(
             fs=FS, rolling_seconds=20.0, safe_margin_seconds=1.0,
             min_rr_sec=0.45, max_rr_sec=1.5,

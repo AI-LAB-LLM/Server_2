@@ -83,6 +83,11 @@ class PpgConfig(AppConfig):
                         threshold_from_train = threshold,
                         device               = device_str,
                     )
+
+                    last_beats = stats.get('last_beats') or []
+                    for vec in last_beats:
+                        detector.beat_window.append(np.array(vec, dtype=np.float32))
+
                     extractor = RealtimeBeatExtractor(
                         fs=FS, rolling_seconds=13.0, safe_margin_seconds=0.6
                     )

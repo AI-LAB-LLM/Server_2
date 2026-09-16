@@ -806,8 +806,11 @@ class ApneaEngine:
 
         prefill_n = context_len - 1
         last_beats = ref_seq[-prefill_n:] if len(ref_seq) >= prefill_n else ref_seq
-        for feat_vec in last_beats:
-            norm_vec = normalize_feature_vector(feat_vec.astype(np.float32), ref_mu, ref_sd)
+        prefill_vecs = [
+            normalize_feature_vector(feat_vec.astype(np.float32), ref_mu, ref_sd)
+            for feat_vec in last_beats
+        ]
+        for norm_vec in prefill_vecs:
             detector.beat_window.append(norm_vec)
 
         old = self._extractors.get(device_id)
@@ -835,6 +838,7 @@ class ApneaEngine:
             "ref_sd": ref_sd.tolist(),
             "num_beats": int(len(ref_seq)),
             "prefilled_beats": int(min(context_len - 1, len(ref_seq))),
+            "last_beats": [v.tolist() for v in prefill_vecs],
             "rolling_seconds": 20.0,
             "safe_margin_seconds": 1.0,
             "min_rr_sec": 0.45,
