@@ -31,7 +31,7 @@ class ResultCreateSerializer(serializers.Serializer):
         help_text="number 또는 null, 위험 확률값",
     )
 
-    risk_level = serializers.IntegerField(
+    threat_detected_log = serializers.IntegerField(
         required=False,
         allow_null=True,
         min_value=1,
@@ -39,7 +39,7 @@ class ResultCreateSerializer(serializers.Serializer):
         help_text="integer 또는 null, 1~5 위험도 등급",
     )
 
-    risk_detected = serializers.BooleanField(
+    threat_detected = serializers.BooleanField(
         required=False,
         allow_null=True,
         help_text="boolean 또는 null, 위험 감지 여부",
@@ -56,7 +56,7 @@ class ResultSerializer(serializers.ModelSerializer):
             "event_type",
             "timestamp",
             "probability",
-            "risk_level",
-            "risk_detected",
+            "threat_detected_log",
+            "threat_detected",
             "created_at",
         ]

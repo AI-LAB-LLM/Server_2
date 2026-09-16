@@ -12,8 +12,8 @@ class ResultAdmin(admin.ModelAdmin):
         "event_type",
         "timestamp",
         "probability",
-        "risk_level",
-        "risk_detected",
+        "threat_detected_log",
+        "threat_detected",
         "created_at",
     )
 
@@ -24,8 +24,8 @@ class ResultAdmin(admin.ModelAdmin):
     list_filter = (
         "mode",
         "event_type",
-        "risk_level",
-        "risk_detected",
+        "threat_detected_log",
+        "threat_detected",
         "created_at",
     )
 

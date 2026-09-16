@@ -30,13 +30,13 @@ class Result(models.Model):
         help_text="PPG, IMU 또는 GEO",
     )
 
-    risk_detected = models.BooleanField(
+    threat_detected = models.BooleanField(
         null=True,
         blank=True,
         help_text="위험 감지 여부. 결과가 없으면 null",
     )
 
-    risk_level = models.PositiveSmallIntegerField(
+    threat_detected_log = models.PositiveSmallIntegerField(
         null=True,
         blank=True,
         help_text="1~5 위험도 등급. 결과가 없으면 null",
@@ -61,8 +61,8 @@ class Result(models.Model):
             models.Index(fields=["device_id", "timestamp"]),
             models.Index(fields=["mode"]),
             models.Index(fields=["event_type"]),
-            models.Index(fields=["risk_detected"]),
+            models.Index(fields=["threat_detected"]),
         ]
 
     def __str__(self):
-        return f"{self.device_id} / {self.mode} / {self.event_type} / {self.risk_level}"
+        return f"{self.device_id} / {self.mode} / {self.event_type} / {self.threat_detected_log}"

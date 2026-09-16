@@ -49,8 +49,8 @@ Request body:
 - event_type: string, PPG, IMU 또는 GEO
 - timestamp_ms: integer, UNIX time, 위험 분석에 사용한 데이터 구간의 끝 시간
 - probability: number | null, 위험 확률
-- risk_level: integer | null, 1~5 위험도 등급
-- risk_detected: boolean | null, 위험 감지 여부
+- threat_detected_log: integer | null, 1~5 위험도 등급
+- threat_detected: boolean | null, 위험 감지 여부
 
 처리:
 - 결과만 저장
@@ -76,8 +76,8 @@ Request body:
                 "event_type": "PPG",
                 "timestamp": 1777824330000,
                 "probability": 0.82,
-                "risk_level": 4,
-                "risk_detected": True,
+                "threat_detected_log": 4,
+                "threat_detected": True,
             },
             request_only=True,
         ),
@@ -89,8 +89,8 @@ Request body:
                 "event_type": "IMU",
                 "timestamp": 1777824330000,
                 "probability": None,
-                "risk_level": 1,
-                "risk_detected": False,
+                "threat_detected_log": 1,
+                "threat_detected": False,
             },
             request_only=True,
         ),
@@ -102,8 +102,8 @@ Request body:
                 "event_type": "PPG",
                 "timestamp": 1777824330000,
                 "probability": None,
-                "risk_level": None,
-                "risk_detected": None,
+                "threat_detected_log": None,
+                "threat_detected": None,
             },
             request_only=True,
         ),
@@ -145,8 +145,8 @@ def create_result(request):
         event_type=serializer.validated_data["event_type"],
         timestamp=timestamp,
         probability=serializer.validated_data.get("probability"),
-        risk_level=serializer.validated_data.get("risk_level"),
-        risk_detected=serializer.validated_data.get("risk_detected"),
+        threat_detected_log=serializer.validated_data.get("threat_detected_log"),
+        threat_detected=serializer.validated_data.get("threat_detected"),
     )
 
     return Response(

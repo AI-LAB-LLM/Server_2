@@ -51,8 +51,8 @@ def save_imu_result(sensor_window, level, timestamp=None):
         event_type=Result.EventType.IMU,
         timestamp=timestamp if timestamp is not None else sensor_window.started_at,
         probability=None,
-        risk_level=level,
-        risk_detected=level >= RISK_DETECTED_MIN_LEVEL,
+        threat_detected_log=level,
+        threat_detected=level >= RISK_DETECTED_MIN_LEVEL,
     )
 
 
@@ -109,8 +109,8 @@ def run_imu_level_for_window(sensor_window):
     return {
         "imu_status": "saved",
         "result_id": result_obj.id,
-        "level": result_obj.risk_level,
-        "risk_detected": result_obj.risk_detected,
+        "level": result_obj.threat_detected_log,
+        "risk_detected": result_obj.threat_detected,
         "probs": result["probs"],
     }
 
@@ -159,8 +159,8 @@ def run_imu_overlap_for_window(sensor_window):
     return {
         "imu_status": "saved",
         "result_id": result_obj.id,
-        "level": result_obj.risk_level,
-        "risk_detected": result_obj.risk_detected,
+        "level": result_obj.threat_detected_log,
+        "risk_detected": result_obj.threat_detected,
         "probs": result["probs"],
         "timestamp": overlap_timestamp.isoformat(),
     }

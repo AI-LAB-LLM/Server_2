@@ -33,7 +33,7 @@ def save_geo_analysis_result(result_obj):
     if risk is None:
         return None
 
-    risk_level, risk_detected = risk
+    threat_detected_log, threat_detected = risk
 
     return Result.objects.create(
         device_id=result_obj.device_id,
@@ -41,8 +41,8 @@ def save_geo_analysis_result(result_obj):
         event_type=Result.EventType.GEO,
         timestamp=result_obj.trip_end_time,
         probability=None,
-        risk_level=risk_level,
-        risk_detected=risk_detected,
+        threat_detected_log=threat_detected_log,
+        threat_detected=threat_detected,
     )
 
 
