@@ -55,7 +55,7 @@ def handle_sensor_window(sender, instance, created, **kwargs):
                     logger.info(f"[CAL] 강제 baseline 수집: {device_id} 샘플={len(all_ppg)}")
                     engine._baseline_buf[device_id] = all_ppg  # 기존 버퍼 교체
                     engine._finalize_baseline(device_id, apnea_session)
-        elif mode == 'THREAT':
+        elif mode in ('THREAT', 'PERIODIC'):
             apnea_session = _get_latest_apnea_session(device_id)
 
             if not apnea_session:
