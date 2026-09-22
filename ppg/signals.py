@@ -7,6 +7,41 @@ import datetime
 logger = logging.getLogger(__name__)
 
 
+# p_apnea_smooth 확률 구간 -> (threat_detected_log, threat_detected) 고정 매핑
+PPG_PROBABILITY_THRESHOLDS = (
+    (0.2, 1, False),
+    (0.4, 2, False),
+    (0.6, 3, False),
+    (0.8, 4, True),
+)
+
+
+def _ppg_probability_to_risk(probability):
+    for upper, threat_detected_log, threat_detected in PPG_PROBABILITY_THRESHOLDS:
+        if probability < upper:
+            return threat_detected_log, threat_detected
+    return 5, True
+
+
+def _save_ppg_analysis_result(device_id, mode, timestamp, probability):
+    if probability is None:
+        return None
+
+    from analysis.models import Result
+
+    threat_detected_log, threat_detected = _ppg_probability_to_risk(probability)
+
+    return Result.objects.create(
+        device_id=device_id,
+        mode=mode,
+        event_type=Result.EventType.PPG,
+        timestamp=timestamp,
+        probability=probability,
+        threat_detected_log=threat_detected_log,
+        threat_detected=threat_detected,
+    )
+
+
 def handle_sensor_window(sender, instance, created, **kwargs):
     if not created:
         return
@@ -144,6 +179,14 @@ def handle_sensor_window(sender, instance, created, **kwargs):
             }
         )
         logger.debug(f"[signal] {device_id} mode={mode} phase={result['phase']}")
+
+        if mode in ('THREAT', 'PERIODIC') and result["phase"] == "inference":
+            _save_ppg_analysis_result(
+                device_id=device_id,
+                mode=mode,
+                timestamp=sw.started_at,
+                probability=result.get("p_apnea_smooth"),
+            )
 
     except Exception as e:
         logger.error(f"[signal] handle_sensor_window failed: {e}")
