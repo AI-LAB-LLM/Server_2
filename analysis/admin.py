@@ -10,10 +10,10 @@ class ResultAdmin(admin.ModelAdmin):
         "device_id",
         "mode",
         "event_type",
-        "timestamp",
-        "probability",
-        "threat_detected_log",
         "threat_detected",
+        "threat_detected_log",
+        "probability",
+        "timestamp",
         "created_at",
     )
 
