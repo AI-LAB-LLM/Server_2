@@ -173,7 +173,7 @@ class EventStatusView(View):
                 "timestamp":        None,
             })
 
-        level = latest.risk_level
+        level = latest.threat_detected_log
         if level is None:
             display = "데이터 없음"
         elif level >= 4:
