@@ -6,6 +6,7 @@ EVENT_TYPE_CODES = {
     "PPG": 1,
     "IMU": 2,
     "GEO": 3,
+    "SOS": 4,
 }
 
 DANGER_EVENT_PATH = "/api/dts/event/danger"

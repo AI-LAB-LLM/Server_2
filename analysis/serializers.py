@@ -15,8 +15,12 @@ class ResultCreateSerializer(serializers.Serializer):
     )
 
     event_type = serializers.ChoiceField(
-        choices=Result.EventType.choices,
-        help_text="string, PPG 또는 IMU",
+        choices=[
+            (value, label)
+            for value, label in Result.EventType.choices
+            if value != Result.EventType.SOS
+        ],
+        help_text="string, PPG, IMU 또는 GEO",
     )
 
     timestamp = serializers.IntegerField(

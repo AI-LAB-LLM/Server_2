@@ -1,7 +1,9 @@
 import logging
 from datetime import timedelta, timezone as dt_timezone
 from django.db import transaction
+from .models import Result
 from .platform_client import EVENT_TYPE_CODES, send_danger_event
+from .sos_services import SOS_SOURCE_EVENT_TYPES, handle_sos_evaluation
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +15,26 @@ def handle_result_created(sender, instance, created, **kwargs):
     if not created:
         return
 
+    if instance.event_type == Result.EventType.SOS:
+        return
+
+    _schedule_platform_send(instance)
+
+    if instance.event_type in SOS_SOURCE_EVENT_TYPES:
+        device_id = instance.device_id
+        mode = instance.mode
+        timestamp = instance.timestamp
+
+        transaction.on_commit(
+            lambda: handle_sos_evaluation(
+                device_id=device_id,
+                mode=mode,
+                timestamp=timestamp,
+            )
+        )
+
+
+def _schedule_platform_send(instance):
     if instance.threat_detected is None:
         return
 

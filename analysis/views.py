@@ -170,7 +170,7 @@ def create_result(request):
 Query parameter:
 - device_id: string, 선택값
 - mode: string, 선택값, THREAT, PERIODIC 또는 CALIBRATION
-- event_type: string, 선택값, PPG, IMU 또는 GEO
+- event_type: string, 선택값, PPG, IMU, GEO 또는 SOS
 """,
     responses={
         200: OpenApiResponse(

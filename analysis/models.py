@@ -11,6 +11,7 @@ class Result(models.Model):
         PPG = "PPG", "PPG"
         IMU = "IMU", "IMU"
         GEO = "GEO", "GEO"
+        SOS = "SOS", "SOS"
 
     device_id = models.CharField(
         max_length=100,
@@ -27,7 +28,7 @@ class Result(models.Model):
     event_type = models.CharField(
         max_length=10,
         choices=EventType.choices,
-        help_text="PPG, IMU 또는 GEO",
+        help_text="PPG, IMU, GEO 또는 SOS(PPG/IMU 누적 판정)",
     )
 
     threat_detected = models.BooleanField(
