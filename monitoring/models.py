@@ -77,6 +77,18 @@ class MonitoringSession(models.Model):
         help_text="현재 세션에 수신된 윈도우 개수",
     )
 
+    sos_detected_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="이 세션에서 SOS를 플랫폼으로 전송한 시각. null이면 아직 전송하지 않음",
+    )
+
+    threat_cleared_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="데이터 끊김으로 PPG/IMU 위협 상태 해제를 전송한 시각. null이면 미처리",
+    )
+
     class Meta:
         db_table = "monitoring_session"
         ordering = ["-started_at"]
