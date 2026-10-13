@@ -40,7 +40,7 @@ class PpgConfig(AppConfig):
             import numpy as np
             import torch
             from .apnea_engine import (ApneaEngine, RealtimeApneaDetector,
-                                       RealtimeBeatExtractor, FS)
+                                       make_beat_extractor)
             from .models import ApneaSession
 
             from django.db import connection
@@ -88,9 +88,7 @@ class PpgConfig(AppConfig):
                     for vec in last_beats:
                         detector.beat_window.append(np.array(vec, dtype=np.float32))
 
-                    extractor = RealtimeBeatExtractor(
-                        fs=FS, rolling_seconds=13.0, safe_margin_seconds=0.6
-                    )
+                    extractor = make_beat_extractor()
 
                     with engine._dev_lock:
                         engine._detectors[device_id]     = detector
