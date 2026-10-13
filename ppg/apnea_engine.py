@@ -17,8 +17,12 @@ logger = logging.getLogger(__name__)
 FS               = 25.0
 SHORT_GAP_THRESH = 3
 BEAT_FEATURES    = ["FO_SP_s", "Downstroke_vel", "HR_bpm", "RR_s", "QI"]
-BASELINE_PACKETS = 8
-MIN_BASELINE_SAMPLES = int(FS * 90)
+
+# 캘리브레이션은 12초 윈도우 3개(36초)가 들어온다. 착용 직후 신호가 불안정한
+# 앞 4초는 버리고 나머지 32초를 베이스라인으로 쓴다.
+MIN_BASELINE_SAMPLES     = int(FS * 36)  # 이만큼 모이면 베이스라인 확정
+BASELINE_DISCARD_SAMPLES = int(FS * 4)   # 앞에서 버리는 구간
+BASELINE_USE_SAMPLES     = int(FS * 32)  # 실제 통계에 쓰는 구간
 
 
 def butter_bandpass(low, high, fs, order=3):
@@ -171,76 +175,6 @@ def impute_column_short(col, thresh=SHORT_GAP_THRESH):
         else:
             i += 1
     return col
-
-
-def process_raw_to_beat_table_offline(raw, fs=FS):
-    import pandas as pd
-
-    raw = np.asarray(raw, dtype=float)
-    raw = raw[np.isfinite(raw)]
-    if len(raw) < int(fs * 5):
-        return pd.DataFrame()
-
-    ppg      = bandpass_filter(raw, fs=fs, low=0.5, high=8.0)
-    ppg_norm = robust_minmax(ppg)
-    diff     = np.gradient(ppg_norm) * fs
-
-    sp_idx = detect_sp(ppg_norm, fs, min_rr_sec=0.45, base_prom=0.03)
-    sp_idx = refine_sp_indices(ppg_norm, sp_idx, fs, window_sec=0.08)
-
-    if len(sp_idx) < 5:
-        return pd.DataFrame()
-
-    rows, prev_sp = [], None
-
-    for i, sp in enumerate(sp_idx):
-        fo  = find_onset_before_peak(ppg_norm, diff, sp, fs)
-        dn  = find_notch_after_peak(ppg_norm, sp, fs)
-        fid = clean_fiducials(Fiducials(FO=fo, SP=sp, DN=dn, DP=None), fs)
-
-        def tdiff(a, b):
-            return max(0.0, (b - a) / fs) if (a is not None and b is not None) else np.nan
-
-        fo_sp_s = tdiff(fid.FO, fid.SP)
-
-        amp_sp = (
-            float(ppg_norm[fid.SP] - ppg_norm[fid.FO])
-            if (fid.FO is not None and fid.SP is not None)
-            else np.nan
-        )
-
-        dn_v = (
-            float(np.nanmin(diff[fid.SP: fid.DN + 1]))
-            if (fid.SP is not None and fid.DN is not None and fid.DN > fid.SP)
-            else np.nan
-        )
-
-        qi = quality_index(
-            fid,
-            {
-                "FO_SP_time_s": fo_sp_s,
-                "Amp_SP": amp_sp,
-                "Downstroke_vel": dn_v,
-            },
-            ppg_norm,
-            fs,
-        )
-
-        rr_s = np.nan if prev_sp is None else (fid.SP - prev_sp) / fs
-        hr_bpm = 60.0 / rr_s if (np.isfinite(rr_s) and rr_s > 0) else np.nan
-        prev_sp = fid.SP
-
-        rows.append({
-            "FO_SP_s": fo_sp_s,
-            "Downstroke_vel": dn_v,
-            "HR_bpm": hr_bpm,
-            "RR_s": rr_s,
-            "QI": qi,
-            "sp_sample": int(fid.SP),
-            "beat_idx": i,
-        })
-
-    return pd.DataFrame(rows)
 
 
 def beat_table_to_seq_for_ref(beat_df):
@@ -510,6 +444,90 @@ class RealtimeBeatExtractor:
         return new_rows
 
 
+def make_beat_extractor(fs=FS):
+    """beat 추출기를 만드는 단일 창구.
+
+    robust_minmax가 주어진 구간 전체의 1~99 퍼센타일로 정규화하므로, rolling 길이가
+    다르면 Downstroke_vel 스케일이 달라진다. 베이스라인과 추론이 같은 설정을 쓰도록
+    생성을 한 곳으로 모은다.
+    """
+    return RealtimeBeatExtractor(
+        fs=fs,
+        rolling_seconds=20.0,
+        safe_margin_seconds=1.0,
+        min_rr_sec=0.45,
+        max_rr_sec=1.5,
+    )
+
+
+def baseline_beat_table(raw, fs=FS):
+    import pandas as pd
+
+    raw = np.asarray(raw, dtype=float)
+    raw = raw[np.isfinite(raw)]
+
+    if len(raw) < int(fs * 5):
+        return pd.DataFrame()
+
+    ppg = bandpass_filter(raw, fs=fs, low=0.5, high=8.0)
+    ppg_norm = robust_minmax(ppg)
+    diff = np.gradient(ppg_norm) * fs
+
+    sp_idx = detect_sp(ppg_norm, fs, min_rr_sec=0.45, base_prom=0.03)
+    sp_idx = refine_sp_indices(ppg_norm, sp_idx, fs, window_sec=0.08)
+
+    if len(sp_idx) < 5:
+        return pd.DataFrame()
+
+    rows = []
+    prev_sp = None
+
+    for i, sp in enumerate(sp_idx):
+        fo = find_onset_before_peak(ppg_norm, diff, sp, fs)
+        dn = find_notch_after_peak(ppg_norm, sp, fs)
+        fid = clean_fiducials(Fiducials(FO=fo, SP=sp, DN=dn, DP=None), fs)
+
+        def tdiff(a, b):
+            return max(0.0, (b - a) / fs) if (a is not None and b is not None) else np.nan
+
+        fo_sp_s = tdiff(fid.FO, fid.SP)
+
+        amp_sp = (
+            float(ppg_norm[fid.SP] - ppg_norm[fid.FO])
+            if (fid.FO is not None and fid.SP is not None)
+            else np.nan
+        )
+
+        dn_v = (
+            float(np.nanmin(diff[fid.SP: fid.DN + 1]))
+            if (fid.SP is not None and fid.DN is not None and fid.DN > fid.SP)
+            else np.nan
+        )
+
+        qi = quality_index(
+            fid,
+            {"FO_SP_time_s": fo_sp_s, "Amp_SP": amp_sp, "Downstroke_vel": dn_v},
+            ppg_norm,
+            fs,
+        )
+
+        rr_s = np.nan if prev_sp is None else (fid.SP - prev_sp) / fs
+        hr_bpm = 60.0 / rr_s if (np.isfinite(rr_s) and rr_s > 0) else np.nan
+        prev_sp = fid.SP
+
+        rows.append({
+            "FO_SP_s": fo_sp_s,
+            "Downstroke_vel": dn_v,
+            "HR_bpm": hr_bpm,
+            "RR_s": rr_s,
+            "QI": qi,
+            "sp_sample": int(fid.SP),
+            "beat_idx": i,
+        })
+
+    return pd.DataFrame(rows)
+
+
 class RealtimeApneaDetector:
     def __init__(
         self,
@@ -677,6 +695,7 @@ class ApneaEngine:
         self._session_pk: Dict[str, int] = {}
         self._t0: Dict[str, object] = {}  # ← 추가: device_id별 첫 샘플 절대 시각
         self._baseline_session_pk = {} #추가
+        self._monitoring_session_pk = {}  # device_id별 마지막으로 처리한 모니터링 세션
 
     @classmethod
     def get_instance(cls):
@@ -734,13 +753,7 @@ class ApneaEngine:
             self._t0.pop(device_id, None)  # ← 추가: 세션 시작 시 t0 초기화
 
 
-            self._extractors[device_id] = RealtimeBeatExtractor(
-                fs=FS,
-                rolling_seconds=20.0,
-                safe_margin_seconds=1.0,
-                min_rr_sec=0.45,
-                max_rr_sec=1.5,
-            )
+            self._extractors[device_id] = make_beat_extractor()
 
             self._detectors.pop(device_id, None)
 
@@ -754,13 +767,7 @@ class ApneaEngine:
                 self._baseline_active[device_id] = False
                 self._packet_count[device_id] = 0
 
-                self._extractors[device_id] = RealtimeBeatExtractor(
-                    fs=FS,
-                    rolling_seconds=20.0,
-                    safe_margin_seconds=1.0,
-                    min_rr_sec=0.45,
-                    max_rr_sec=1.5,
-                )
+                self._extractors[device_id] = make_beat_extractor()
 
     def _finalize_baseline(self, device_id: str, session_db):
         from .models import ApneaSession
@@ -778,8 +785,15 @@ class ApneaEngine:
             )
 
         raw = np.array(self._baseline_buf[device_id], dtype=float)
+        # 앞 4초를 버리고 32초만 쓴다. 강제 완료 경로는 DB에서 36초보다 많이
+        # 모아 올 수 있어 뒤쪽도 잘라 길이를 고정한다.
+        raw = raw[BASELINE_DISCARD_SAMPLES:BASELINE_DISCARD_SAMPLES + BASELINE_USE_SAMPLES]
+        logger.info(
+            f"[baseline] {device_id}: 앞 {BASELINE_DISCARD_SAMPLES}샘플 제외, "
+            f"{len(raw)}샘플 사용"
+        )
 
-        bt = process_raw_to_beat_table_offline(raw, fs=FS)
+        bt = baseline_beat_table(raw, fs=FS)
         ref_seq = beat_table_to_seq_for_ref(bt)
 
         if len(ref_seq) < 10:
@@ -789,6 +803,18 @@ class ApneaEngine:
             return
 
         ref_mu, ref_sd = compute_baseline_stats(ref_seq)
+
+        # 어떤 특성의 유효 beat가 0개면 nanmean이 NaN이 된다. 비교 기준이 없어 탐지가
+        # 되지 않고, JSON에도 담을 수 없어 저장이 거부된다(JSON_VALID 위반).
+        if not np.isfinite(ref_mu).all():
+            dead = [n for n, m in zip(BEAT_FEATURES, ref_mu) if not np.isfinite(m)]
+            logger.warning(
+                f"[baseline] {device_id}: 유효 beat가 없는 특성 {dead} "
+                f"-> 베이스라인 폐기 (beats={len(ref_seq)}), 재측정 필요"
+            )
+            with self._dev_lock:
+                self._baseline_buf[device_id] = []
+            return
 
         cfg = self._model_cfg or {}
         context_len = int(cfg.get("context_len", 20))
@@ -815,13 +841,7 @@ class ApneaEngine:
 
         old = self._extractors.get(device_id)
 
-        new_ext = RealtimeBeatExtractor(
-            fs=FS,
-            rolling_seconds=20.0,
-            safe_margin_seconds=1.0,
-            min_rr_sec=0.45,
-            max_rr_sec=1.5,
-        )
+        new_ext = make_beat_extractor()
 
         if old is not None:
             new_ext.raw_buffer = deque(old.raw_buffer, maxlen=new_ext.rolling_n)

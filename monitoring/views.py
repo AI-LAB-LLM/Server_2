@@ -22,6 +22,10 @@ from .utils import (
 from imu.services import run_imu_level_for_window, run_imu_overlap_for_window
 
 
+# 캘리브레이션은 12초 윈도우 3개(36초)로 끝난다. 상시/주기보고는 25개.
+CALIBRATION_WINDOW_COUNT = 3
+
+
 SensorWindowResponseSerializer = inline_serializer(
     name="SensorWindowResponse",
     fields={
@@ -275,11 +279,11 @@ def create_sensor_window(request):
         idx = serializer.validated_data.get("idx")
         if idx is not None:
             # idx를 보내는 클라이언트는 자신이 몇 번째 윈도우를 보내는지 알고 있으므로
-            # DB 카운트보다 idx를 신뢰해 25 도달 시 즉시 세션을 종료할 수 있게 한다.
+            # DB 카운트보다 idx를 신뢰해 도달 시 즉시 세션을 종료할 수 있게 한다.
             window_count = idx
         else:
             window_count = SensorWindow.objects.filter(session=session).count()
-        required_window_count = 25
+        required_window_count = CALIBRATION_WINDOW_COUNT
     else:
         window_count = serializer.validated_data["idx"]
         required_window_count = 25
