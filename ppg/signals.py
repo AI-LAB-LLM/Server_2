@@ -204,13 +204,18 @@ def handle_sensor_window(sender, instance, created, **kwargs):
                 engine._monitoring_session_pk[device_id] = session.pk
                 engine._t0[device_id] = sw.started_at
 
+            imu = None
+            if sw.x and sw.y and sw.z:
+                import numpy as np
+                imu = np.stack([sw.x, sw.y, sw.z], axis=1)  # (N, 3)
+
             result = engine.process_chunk(
-                device_id,
-                ppg_green,
+                device_id, ppg_green,
                 ppg_ir=[],
                 ppg_red=[],
                 session_db=apnea_session,
                 packet_timestamp=sw.started_at,
+                imu=imu,
             )
         else:
             return
@@ -375,7 +380,17 @@ def _get_or_create_apnea_session(device_id, started_at):
 
 
 def _get_latest_apnea_session(device_id):
+    """
+    is_selected=True인 세션을 우선 반환.
+    선택된 세션이 없으면 가장 최근 baseline_ready 세션을 반환.
+    """
     from .models import ApneaSession
+    selected = (ApneaSession.objects
+                .filter(device_id=device_id, baseline_ready=True, is_selected=True)
+                .order_by('-started_at')
+                .first())
+    if selected:
+        return selected
     return (ApneaSession.objects
             .filter(device_id=device_id, baseline_ready=True)
             .order_by('-started_at')

@@ -1,5 +1,5 @@
 // ppg/static/ppg/js/imu.js
-// IMU 위험 레벨 카드: 현재 레벨 타일 + 1~5 단계 스케일 + 최근 3분(6초 슬롯) 레벨 막대
+// 물리적 위험 레벨(IMU) 카드: 현재 레벨 타일 + 1~5 단계 스케일 + 최근 3분(6초 슬롯) 레벨 막대
 
 const POLL_MS     = 3000;   // IMU 결과는 6초 간격 → 3초 폴링이면 최대 3초 지연
 const SLOT_SEC    = 6;
@@ -8,11 +8,11 @@ const SLOTS       = HISTORY_SEC / SLOT_SEC;   // 30칸
 
 // 레벨 정의 (색상은 템플릿 CSS의 [data-level] 규칙)
 export const IMU_LEVELS = {
-  1: { name: '정적',      desc: '움직임이 거의 없는 상태 (앉거나 누워 있음)' },
-  2: { name: '저강도',    desc: '가벼운 움직임 (천천히 걷기, 손 동작 등)' },
-  3: { name: '보통',      desc: '일상 활동 수준의 활발한 움직임 (빠르게 걷기 등)' },
-  4: { name: '고강도',    desc: '급격하고 강한 움직임 · 위협 감지 기준(4 이상)' },
-  5: { name: '격렬·위험', desc: '매우 격렬한 움직임 (몸싸움·저항 의심) · 위협 감지' },
+  1: { name: '정적',      desc: '움직임이 거의 없는 상태' },
+  2: { name: '저강도',    desc: '가벼운 움직임' },
+  3: { name: '보통',      desc: '일상 활동 수준의 활발한 움직임' },
+  4: { name: '고강도',    desc: '급격하고 강한 움직임' },
+  5: { name: '격렬·위험', desc: '매우 격렬한 움직임 (몸싸움·저항 의심)' },
 };
 
 // 막대 높이(%) — 레벨별
@@ -89,7 +89,7 @@ function render(st) {
   });
   document.getElementById('imuDesc').textContent = meta
     ? meta.desc
-    : '최근 3분간 IMU 결과가 없습니다.';
+    : '최근 3분간 측정 결과가 없습니다.';
   document.getElementById('imuTs').textContent = level
     ? `측정 시각 ${hhmmss(st.timestamp)}`
     : '';
