@@ -88,6 +88,24 @@ def _collect_chunk_labels(device_id, session_id, start, end):
     return labels
 
 
+def _chunk_wear_valid(device_id, session_id, start, end):
+    from django.db.models import Q
+    from .models import ApneaResult
+
+    window_len = datetime.timedelta(seconds=CHUNK_DURATION_SEC)
+
+    rows = ApneaResult.objects.filter(
+        Q(sensor_window__ended_at__gt=start)
+        | Q(sensor_window__ended_at__isnull=True,
+            sensor_window__started_at__gt=start - window_len),
+        device_id=device_id,
+        sensor_window__session_id=session_id,
+        sensor_window__started_at__lt=end,
+    )
+
+    return rows.exists() and not rows.exclude(wear_valid=True).exists()
+
+
 def _save_ppg_chunk_results(device_id, mode, sensor_window):
     """구간이 모두 채워진 청크(12초 길이, 6초 슬라이딩)를 계산해 저장.
 
@@ -103,6 +121,15 @@ def _save_ppg_chunk_results(device_id, mode, sensor_window):
         end = start + datetime.timedelta(seconds=CHUNK_DURATION_SEC)
 
         if start < session_started_at:
+            continue
+
+        if not _chunk_wear_valid(
+            device_id, sensor_window.session_id, start, end
+        ):
+            logger.debug(
+                f"[ppg-chunk] {device_id} {start.isoformat()} "
+                f"skip: wear invalid"
+            )
             continue
 
         labels = _collect_chunk_labels(
