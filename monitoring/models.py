@@ -83,6 +83,12 @@ class MonitoringSession(models.Model):
         help_text="이 세션에서 SOS를 플랫폼으로 전송한 시각. null이면 아직 전송하지 않음",
     )
 
+    sos_closed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="대시보드에서 SOS 사건을 종결한 시각. null이면 미종결(SOS 표시 유지)",
+    )
+
     threat_cleared_at = models.DateTimeField(
         null=True,
         blank=True,

@@ -11,6 +11,15 @@ urlpatterns = [
     path("api/apnea/records/",  views.ApneaRecordsView.as_view(),  name="apnea_records"),
     path("api/apnea/status/",   views.ModelStatusView.as_view(),   name="apnea_status"),
 
+# Baseline API
+    path("api/baseline/",        views.BaselineListView.as_view(),   name="baseline_list"),
+    path("api/baseline/select/", views.BaselineSelectView.as_view(), name="baseline_select"),
+
+
     # Threat API
     path("api/event_status/", views.EventStatusView.as_view(), name="event_status"),
+
+    # SOS
+    path("api/sos/status/", views.SosStatusView.as_view(), name="sos_status"),
+    path("api/sos/close/",  views.SosCloseView.as_view(),  name="sos_close"),
 ]

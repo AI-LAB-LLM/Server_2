@@ -2,6 +2,7 @@ import { setItems, appendIrFromItems } from './state.js';
 import { fetchRecordsWithPulses, fetchModelStatus } from './api.js';
 import { renderIrHolding, renderWearStatus } from './charts.js';
 import { startImuMonitor } from './imu.js';
+import { startSosMonitor } from './sos.js';
 
 let isFetching  = false;
 const POLL_MS   = 4000;
@@ -82,6 +83,8 @@ async function fetchAndRender() {
 
   // IMU 카드는 자체 폴링(3초)으로 6초 단위 결과를 따라감
   startImuMonitor(DEVICE_ID);
+  // SOS 배너: 미종결 SOS 표시 / 사건 종결
+  startSosMonitor(DEVICE_ID);
 
   if (!window.__devicePollStarted) {
     window.__devicePollStarted = true;

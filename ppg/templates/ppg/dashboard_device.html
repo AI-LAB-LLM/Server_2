@@ -27,6 +27,40 @@
     .grid-right .card { flex:1; min-height:0; display:flex; flex-direction:column; padding:10px; }
     .chart-box { flex:1; min-height:0; width:100%; }
     .card { background:#fff; border-radius:12px; box-shadow:0 4px 12px rgba(0,0,0,.08); }
+    /* ── SOS 배너 ── */
+    .sos-banner {
+      flex:0 0 auto; display:flex; align-items:center; gap:18px;
+      padding:12px 24px; background:#7a2420; color:#fff;
+    }
+    .sos-banner[hidden] { display:none; }
+    .sos-icon {
+      flex:0 0 auto; width:54px; height:54px; border-radius:50%;
+      animation:sos-pulse 1.6s ease-out infinite;
+    }
+    .sos-icon svg { display:block; width:100%; height:100%; }
+    @keyframes sos-pulse {
+      0%   { box-shadow:0 0 0 0 rgba(255,255,255,.55); }
+      100% { box-shadow:0 0 0 14px rgba(255,255,255,0); }
+    }
+    @media (prefers-reduced-motion: reduce) { .sos-icon { animation:none; } }
+    .sos-badge {
+      flex:0 0 auto; background:#fff; color:#7a2420; border-radius:10px;
+      padding:6px 18px; font-size:28px; font-weight:900; letter-spacing:.14em; line-height:1.15;
+    }
+    .sos-label  { font-size:12px; font-weight:600; opacity:.8; margin-bottom:2px; }
+    .sos-basis  { flex:1; min-width:0; }
+    .sos-basis__main { font-size:22px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .sos-basis__sub  { font-size:13px; opacity:.85; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .sos-stat   { flex:0 0 auto; min-width:150px; padding:0 24px; border-left:1px solid rgba(255,255,255,.25); }
+    .sos-stat__value { font-size:30px; font-weight:800; line-height:1.15; font-variant-numeric:tabular-nums; }
+    .sos-close {
+      flex:0 0 auto; display:flex; align-items:center; gap:8px;
+      background:#fff; color:#7a2420; border:none; border-radius:12px;
+      padding:14px 26px; font-size:18px; font-weight:800; cursor:pointer;
+    }
+    .sos-close:hover    { background:#fbeaea; }
+    .sos-close:disabled { opacity:.6; cursor:wait; }
+
     /* ── IMU 위험 레벨 카드 ── */
     .imu-card {
       --imu-lv1:#e2e8f0; --imu-lv2:#f6e3c6; --imu-lv3:#ecb06c; --imu-lv4:#b84a20; --imu-lv5:#8c2a22;
@@ -80,8 +114,50 @@
       transition:height .3s ease, background .3s;
     }
     .imu-bar.is-empty .imu-bar__fill { height:3px !important; background:#e5e7eb; border:none; }
+
+    /* ── Baseline + Wear 가로 배치 ── */
+    .bottom-row {
+      display:grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+      gap:10px;
+      flex:1; min-height:0;
+    }
+
+    /* ── Baseline 패널 ── */
+    .baseline-panel {
+      padding:10px 12px; display:flex; flex-direction:column; gap:6px;
+      overflow:hidden; min-height:0;
+    }
+    .baseline-panel__header { display:flex; align-items:center; justify-content:space-between; flex-shrink:0; }
+    .baseline-panel__title  { font-weight:700; font-size:12px; color:#374151; }
+    .baseline-panel__sub    { font-size:10px; color:#9ca3af; }
+    .bl-list { display:flex; flex-direction:column; gap:4px; overflow-y:auto; flex:1; min-height:0; }
+    .bl-item {
+      border:1.5px solid #e5e7eb; border-radius:8px; padding:5px 8px;
+      cursor:pointer; transition:border-color .15s, background .15s;
+      display:flex; align-items:flex-start; gap:7px; flex-shrink:0;
+    }
+    .bl-item:hover  { border-color:#6ee7b7; background:#f0fdf4; }
+    .bl-item.active { border-color:#10b981; background:#ecfdf5; }
+    .bl-item input[type=radio] { accent-color:#10b981; flex-shrink:0; margin-top:3px; }
+    .bl-item__body  { flex:1; min-width:0; }
+    .bl-item__ts    { font-size:11px; font-weight:700; color:#111827; }
+    .bl-item__meta  { font-size:10px; color:#6b7280; margin-top:1px; }
+    .bl-item__badge {
+      font-size:9px; font-weight:700; padding:2px 5px;
+      border-radius:999px; background:#10b981; color:#fff;
+      white-space:nowrap; flex-shrink:0; margin-top:2px;
+    }
+    .feat-table { width:100%; border-collapse:collapse; font-size:10px; margin-top:5px; }
+    .feat-table th { text-align:left; color:#6b7280; font-weight:600; padding:2px 3px; width:44%; }
+    .feat-table td { text-align:right; color:#374151; padding:2px 3px; font-variant-numeric:tabular-nums; }
+    .feat-table tr:nth-child(odd) td,
+    .feat-table tr:nth-child(odd) th { background:#f9fafb; }
+    .bl-detail { display:none; padding:3px 3px 0; }
+    .bl-item.active .bl-detail { display:block; }
+
     #wearCard {
-      flex:1; display:flex; flex-direction:column; padding:16px;
+      display:flex; flex-direction:column; padding:16px;
       box-sizing:border-box; text-align:center; min-height:0;
     }
     #wearCard .wear-card__top    { flex:0 0 auto; }
@@ -100,6 +176,41 @@
 </head>
 <body>
 <div id="appRoot">
+  <div id="sosBanner" class="sos-banner" role="alert" hidden>
+    <div class="sos-icon" aria-hidden="true">
+      <svg viewBox="0 0 64 64">
+        <circle cx="32" cy="32" r="32" fill="#fff"/>
+        <g fill="none" stroke="#a82e27" stroke-width="4" stroke-linecap="round">
+          <path d="M32 12v4M19.5 17.5l2.8 2.8M44.5 17.5l-2.8 2.8M14 30h4M46 30h4"/>
+          <path d="M23 43V33a9 9 0 0 1 18 0v10"/>
+        </g>
+        <rect x="18" y="42" width="28" height="8" rx="2" fill="#a82e27"/>
+        <path d="M22 46h20" stroke="#fff" stroke-width="1.6"/>
+      </svg>
+    </div>
+    <div class="sos-badge">SOS</div>
+    <div class="sos-basis">
+      <div class="sos-label">판단 근거</div>
+      <div id="sosBasisMain" class="sos-basis__main">-</div>
+      <div id="sosBasisSub"  class="sos-basis__sub"></div>
+    </div>
+    <div class="sos-stat">
+      <div class="sos-label">발생 시각</div>
+      <div id="sosOccurred" class="sos-stat__value">--:--:--</div>
+    </div>
+    <div class="sos-stat">
+      <div class="sos-label">경과 시간</div>
+      <div id="sosElapsed" class="sos-stat__value">00:00</div>
+    </div>
+    <button id="sosCloseBtn" class="sos-close" type="button">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M5 12.5l4.5 4.5L19 7.5"/>
+      </svg>
+      사건 종결
+    </button>
+  </div>
+
   <header class="header">
     <h1>Integrated Threat Monitor</h1>
     <img class="logo" src="{% static 'ppg/image/logo.png' %}" alt="logo">
@@ -124,7 +235,7 @@
   <div class="grid-split">
     <div class="grid-left">
       <div id="imuCard" class="card imu-card is-empty">
-        <div class="imu-card__title">IMU 위험 레벨</div>
+        <div class="imu-card__title">물리적 위험 레벨</div>
         <div class="imu-card__top">
           <div id="imuTile" class="imu-tile">
             <div id="imuTileNum"   class="imu-tile__num">–</div>
@@ -145,16 +256,29 @@
         </div>
       </div>
 
-      <div id="wearCard" class="card wear-card is-unk" style="flex:1;">
-        <div class="wear-card__top">
-          <div class="wear-card__title">탈부착 여부</div>
-          <div class="wear-card__status" id="wearStatusText">--</div>
-          <div class="wear-card__meta"   id="wearStatusMeta"></div>
+      <!-- Baseline + Wear 가로 배치 -->
+      <div class="bottom-row">
+        <div class="card baseline-panel">
+          <div class="baseline-panel__header">
+            <span class="baseline-panel__title">Baseline</span>
+            <span class="baseline-panel__sub">추론에 사용할 베이스라인을 선택하세요</span>
+          </div>
+          <div class="bl-list" id="blList">
+            <div style="font-size:11px;color:#9ca3af;padding:4px;">불러오는 중...</div>
+          </div>
         </div>
-        <div class="wear-card__bottom">
-          <img id="wearStateImage"
-               src="{% static 'ppg/image/loading.png' %}"
-               alt="wear state">
+
+        <div id="wearCard" class="card wear-card is-unk">
+          <div class="wear-card__top">
+            <div class="wear-card__title">탈부착 여부</div>
+            <div class="wear-card__status" id="wearStatusText">--</div>
+            <div class="wear-card__meta"   id="wearStatusMeta"></div>
+          </div>
+          <div class="wear-card__bottom">
+            <img id="wearStateImage"
+                 src="{% static 'ppg/image/loading.png' %}"
+                 alt="wear state">
+          </div>
         </div>
       </div>
     </div>
@@ -173,7 +297,82 @@
   window.ITEMS          = JSON.parse(document.getElementById('items-json').textContent || '[]');
   window.DASH_DEVICE_ID = "{{ device_id|escapejs }}";
 </script>
-<!-- ?v=: 정적 파일 수정 시 값을 올려 브라우저 캐시 우회 -->
-<script type="module" src="{% static 'ppg/js/main_device.js' %}?v=20261013"></script>
+{# 정적 JS 수정 시 v 값을 올리면 브라우저 캐시를 우회한다 (import되는 모듈 포함) #}
+{% with v="20261013-3" %}
+<script type="importmap">
+{
+  "imports": {
+    "{% static 'ppg/js/state.js' %}":  "{% static 'ppg/js/state.js' %}?v={{ v }}",
+    "{% static 'ppg/js/api.js' %}":    "{% static 'ppg/js/api.js' %}?v={{ v }}",
+    "{% static 'ppg/js/charts.js' %}": "{% static 'ppg/js/charts.js' %}?v={{ v }}",
+    "{% static 'ppg/js/imu.js' %}":    "{% static 'ppg/js/imu.js' %}?v={{ v }}",
+    "{% static 'ppg/js/sos.js' %}":    "{% static 'ppg/js/sos.js' %}?v={{ v }}"
+  }
+}
+</script>
+<script type="module" src="{% static 'ppg/js/main_device.js' %}?v={{ v }}"></script>
+{% endwith %}
+
+<script>
+(function() {
+  const deviceId = window.DASH_DEVICE_ID;
+  const blList   = document.getElementById('blList');
+  const kpi      = document.getElementById('kpiBaseline');
+
+  function fmt(ts) {
+    const d = new Date(ts);
+    const p = n => String(n).padStart(2,'0');
+    return `${d.getFullYear()}. ${p(d.getMonth()+1)}. ${p(d.getDate())}. ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+
+  function buildFeatTable(featStats) {
+    return '<table class="feat-table"><tbody>'
+      + featStats.map(f =>
+          `<tr><th>${f.feature}</th><td>μ&nbsp;${f.mu ?? '—'}</td><td>σ&nbsp;${f.std ?? '—'}</td></tr>`
+        ).join('')
+      + '</tbody></table>';
+  }
+
+  function renderList(items) {
+    if (!items.length) {
+      blList.innerHTML = '<div style="font-size:11px;color:#9ca3af;padding:4px;">베이스라인 없음</div>';
+      return;
+    }
+    blList.innerHTML = items.map(item => `
+      <div class="bl-item${item.is_selected ? ' active' : ''}" data-id="${item.id}">
+        <input type="radio" name="baseline" value="${item.id}"${item.is_selected ? ' checked' : ''}>
+        <div class="bl-item__body">
+          <div class="bl-item__ts">${fmt(item.started_at)}</div>
+          <div class="bl-item__meta">${item.num_beats} beats</div>
+          <div class="bl-detail">${buildFeatTable(item.feat_stats)}</div>
+        </div>
+        ${item.is_selected ? '<span class="bl-item__badge">현재 추론에 사용 중</span>' : ''}
+      </div>`).join('');
+
+    blList.querySelectorAll('.bl-item').forEach(el => {
+      el.addEventListener('click', () => select(parseInt(el.dataset.id, 10)));
+    });
+
+    const sel = items.find(i => i.is_selected);
+    if (sel && kpi) kpi.textContent = fmt(sel.started_at);
+  }
+
+  function select(sessionId) {
+    fetch('/ppg/api/baseline/select/', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({device_id: deviceId, session_id: sessionId}),
+    }).then(r => r.json()).then(d => { if (d.ok) load(); });
+  }
+
+  function load() {
+    fetch(`/ppg/api/baseline/?device_id=${encodeURIComponent(deviceId)}`)
+      .then(r => r.json()).then(d => { if (d.ok) renderList(d.items); });
+  }
+
+  load();
+  setInterval(load, 30000);
+})();
+</script>
 </body>
 </html>
