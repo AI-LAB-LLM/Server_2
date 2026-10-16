@@ -8,6 +8,8 @@ class ApneaSession(models.Model):
     baseline_ready = models.BooleanField(default=False)
     baseline_stats = models.JSONField(null=True, blank=True)
     created_at     = models.DateTimeField(auto_now_add=True)
+    is_selected    = models.BooleanField(default=False, db_index=True)
+
 
     class Meta:
         ordering = ['-started_at']

@@ -613,7 +613,7 @@ class RealtimeApneaDetector:
         }
 
 
-def detect_wear_green(ppg_green, fs=FS):
+def detect_wear_green(ppg_green, fs=FS, imu=None, imu_ts_ms=None):
     """
     기존 ppg 앱의 wear_runtime.wear_green_to_pred()를 그대로 사용.
     """
@@ -623,7 +623,7 @@ def detect_wear_green(ppg_green, fs=FS):
         if hasattr(ppg_green, "tolist"):
             ppg_green = ppg_green.tolist()
 
-        result = wear_green_to_pred(list(ppg_green))
+        result = wear_green_to_pred(list(ppg_green), imu=imu, imu_ts_ms=imu_ts_ms)
 
         return {
             "valid": result.get("valid", False),
@@ -915,15 +915,8 @@ class ApneaEngine:
             f"db_saved={saved_ok} pk={session_pk}"  # ← NULL 추적 핵심 로그
         )
 
-    def process_chunk(
-        self,
-        device_id: str,
-        ppg_green: list,
-        ppg_ir: list = None,
-        ppg_red: list = None,
-        session_db=None,
-        packet_timestamp=None,
-    ) -> dict:
+    def process_chunk(self, device_id, ppg_green, ppg_ir=None, ppg_red=None,
+                  session_db=None, packet_timestamp=None, imu=None, imu_ts_ms=None)-> dict:
 
         self._ensure_device(device_id)
 
@@ -935,7 +928,7 @@ class ApneaEngine:
             baseline_done = self._baseline_done[device_id]
 
         arr = np.asarray(ppg_green, dtype=float)
-        wear = detect_wear_green(arr)
+        wear = detect_wear_green(arr, imu=imu, imu_ts_ms=imu_ts_ms)
         extractor = self._extractors.get(device_id)
 
         if ppg_ir and ppg_red:
