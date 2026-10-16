@@ -158,3 +158,28 @@ KAKAO_JS_KEY = os.getenv("KAKAO_JS_KEY", "")
 DANGER_PLATFORM_BASE_URL = os.getenv(
     "DANGER_PLATFORM_BASE_URL", "http://spin.geotwo.com"
 )
+
+# 설정이 없으면 파이썬 기본 동작(WARNING 이상만 출력)이라 전송 성공 로그가 묻힌다
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "simple": {
+            "format": "[{asctime}] {levelname} {name}: {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "simple",
+        },
+    },
+    "loggers": {
+        "analysis": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}
